@@ -1,8 +1,5 @@
 # CrossNotify Server
 
-> [!NOTE]
-> This README describes the server **after** the refactor specified in [OVERHAUL_SERVER.md](../OVERHAUL_SERVER.md). Until that refactor is merged, the code in this folder is the earlier headless prototype.
-
 The CrossNotify server stores **end-to-end encrypted** notifications from relay phones and forwards them to subscriber phones through **your own Firebase project**. Everything is managed from a built-in **web dashboard** (Vue.js 3). There are no config files to edit.
 
 ## Features

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">CrossNotify</string>
+    <string name="decrypt_activity_title">Decrypted Notification</string>
+    <string name="listener_service_label">CrossNotify E2E Notification Relay</string>
+</resources>
