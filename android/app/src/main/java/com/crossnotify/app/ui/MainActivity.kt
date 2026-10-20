@@ -31,6 +31,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -144,7 +145,7 @@ private fun MainAppScaffold(
     val isBusy by viewModel.isBusy.collectAsState()
     val inboxItems by viewModel.decryptedInbox.collectAsState()
 
-    var activeScannerMode by remember { mutableStateOf<String?>(null) } // "cn-relay" or "cn-sub"
+    var activeScannerMode by rememberSaveable { mutableStateOf<String?>(null) } // "cn-relay" or "cn-sub"
 
     val unreadTotal = remember(inboxItems) {
         inboxItems.count { it.entity.readAt == null }

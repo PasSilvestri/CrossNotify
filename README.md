@@ -21,7 +21,7 @@
 
 Notifications are **end-to-end encrypted (E2E)** with **AES-256-GCM** before they ever leave the relay device. Your private server and Google only handle ciphertext they cannot read. Push delivery is handled efficiently by **Firebase Cloud Messaging (FCM)** using your own free Firebase project, eliminating battery-draining persistent background connections.
 
-Everything is managed through a built-in, responsive **Vue 3 Web Dashboard**, and pairing is established entirely via physical **proximity QR code scanning**.
+Everything is managed through a built-in, responsive **web dashboard**, and pairing is established entirely via physical proximity **QR code scanning**.
 
 ---
 
@@ -71,7 +71,7 @@ flowchart LR
 
     AdminBrowser(("Admin Browser")) -->|1. Setup Token + Firebase Credentials| Dash
     Dash -.->|2. cn-relay QR Provisioning| RelayPhone
-    RelayPhone -.->|3. cn-sub QR In-Person Pairing (E2E Key)| SubPhone
+    RelayPhone -.->|3. cn-sub QR In-Person Pairing | SubPhone
     Outbox -->|4. POST Ciphertext| API
     FA -->|5. Forward Push| FCM
     FCM -->|6. Wakeup Push| FMS

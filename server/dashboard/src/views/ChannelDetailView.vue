@@ -16,11 +16,12 @@ const isLoading = ref(true);
 // Edit name/color
 const isEditing = ref(false);
 const editName = ref('');
-const editColor = ref('#4F46E5');
+const editColor = ref('#0077b6');
 const isSaving = ref(false);
 
 // Revocation dialogs
 const showRevokeChannelDialog = ref(false);
+const showDeleteChannelDialog = ref(false);
 const showRevokeSubscriberDialog = ref(false);
 const subscriberToRevoke = ref<string | null>(null);
 
@@ -34,7 +35,7 @@ async function loadChannel() {
     const data = await channelsStore.fetchChannel(channelId);
     channel.value = data;
     editName.value = data.name;
-    editColor.value = data.color || '#4F46E5';
+    editColor.value = data.color || '#0077b6';
   } catch (err) {
     console.error('Failed to load channel:', err);
     router.push('/');
@@ -78,6 +79,12 @@ async function confirmRevokeSubscriber() {
 async function confirmRevokeChannel() {
   showRevokeChannelDialog.value = false;
   await channelsStore.revokeChannel(channelId);
+  router.push('/');
+}
+
+async function confirmDeleteChannel() {
+  showDeleteChannelDialog.value = false;
+  await channelsStore.deleteChannel(channelId);
   router.push('/');
 }
 
@@ -226,14 +233,35 @@ onMounted(loadChannel);
     <!-- Danger Zone -->
     <div class="card danger-card">
       <h3 class="danger-title">Danger Zone</h3>
-      <p class="danger-desc">
-        Revoking this channel immediately locks out the relay phone and all subscribers.
-        All queued and stored encrypted notifications will be permanently deleted.
-      </p>
-      <button type="button" class="btn btn-danger" @click="showRevokeChannelDialog = true">
-        Revoke This Channel
-      </button>
+      <template v-if="channel.status === 'revoked'">
+        <p class="danger-desc">
+          This channel is currently revoked. All notifications and subscriber keys have been permanently invalidated.
+        </p>
+        <button type="button" class="btn btn-danger" @click="showDeleteChannelDialog = true">
+          Delete Channel Permanently
+        </button>
+      </template>
+      <template v-else>
+        <p class="danger-desc">
+          Revoking this channel immediately locks out the relay phone and all subscribers.
+          All queued and stored encrypted notifications will be permanently deleted.
+        </p>
+        <button type="button" class="btn btn-danger" @click="showRevokeChannelDialog = true">
+          Revoke This Channel
+        </button>
+      </template>
     </div>
+
+    <!-- Delete Channel Dialog -->
+    <ConfirmDialog
+      :open="showDeleteChannelDialog"
+      title="Delete Channel Permanently?"
+      message="Are you sure you want to permanently remove this channel from the dashboard? This action cannot be undone."
+      confirm-label="Delete Channel"
+      :danger="true"
+      @confirm="confirmDeleteChannel"
+      @cancel="showDeleteChannelDialog = false"
+    />
 
     <!-- Revoke Channel Dialog -->
     <ConfirmDialog

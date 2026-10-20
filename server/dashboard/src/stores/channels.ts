@@ -92,6 +92,16 @@ export const useChannelsStore = defineStore('channels', () => {
     await fetchChannels();
   }
 
+  async function deleteChannel(channelId: string) {
+    await apiRequest(`/admin/api/channels/${channelId}?permanent=true`, { method: 'DELETE' });
+    channels.value = channels.value.filter((c) => c.channelId !== channelId);
+  }
+
+  async function clearRevokedChannels() {
+    await apiRequest('/admin/api/channels/revoked/purge', { method: 'DELETE' });
+    channels.value = channels.value.filter((c) => c.status !== 'revoked');
+  }
+
   async function revokeSubscriber(channelId: string, subscriberId: string) {
     await apiRequest(`/admin/api/channels/${channelId}/subscribers/${subscriberId}`, {
       method: 'DELETE',
@@ -115,6 +125,8 @@ export const useChannelsStore = defineStore('channels', () => {
     regenerateRelay,
     updateChannel,
     revokeChannel,
+    deleteChannel,
+    clearRevokedChannels,
     revokeSubscriber,
   };
 });

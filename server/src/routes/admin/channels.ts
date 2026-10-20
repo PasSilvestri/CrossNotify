@@ -73,12 +73,29 @@ export function createAdminChannelsRouter(
     }
   });
 
+  // Purge all revoked channels
+  router.delete('/channels/revoked/purge', auth, (req, res, next) => {
+    try {
+      const deletedCount = channelService.deleteRevokedChannels();
+      res.json({ status: 'ok', deletedCount });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.delete('/channels/:channelId', auth, async (req, res, next) => {
     try {
       const channelId = String(req.params.channelId);
       const channel = channelService.getChannelById(channelId);
       if (!channel) {
         res.status(404).json({ error: 'channel_not_found', message: 'Channel not found' });
+        return;
+      }
+
+      // If permanent delete is requested or channel was already revoked, purge it completely
+      if (req.query.permanent === 'true' || channel.status === 'revoked') {
+        channelService.deleteChannel(channelId);
+        res.json({ status: 'ok', deleted: true });
         return;
       }
 
@@ -89,7 +106,7 @@ export function createAdminChannelsRouter(
         });
       }
 
-      res.json({ status: 'ok' });
+      res.json({ status: 'ok', revoked: true });
     } catch (err) {
       next(err);
     }

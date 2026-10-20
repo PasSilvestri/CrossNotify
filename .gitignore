@@ -15,7 +15,7 @@ public/
 server/public/
 
 # Runtime data & SQLite
-data/
+/data/
 server/data/
 *.sqlite
 *.sqlite-journal

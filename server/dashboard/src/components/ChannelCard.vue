@@ -12,6 +12,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'showQr', channelId: string): void;
   (e: 'revoke', channelId: string): void;
+  (e: 'delete', channelId: string): void;
 }>();
 
 const router = useRouter();
@@ -97,6 +98,27 @@ function navigateToDetail() {
           @click="emit('revoke', channel.channelId)"
         >
           Cancel
+        </button>
+      </div>
+    </div>
+
+    <!-- Revoked Channel Details -->
+    <div v-else-if="channel.status === 'revoked'" class="card-body revoked-body" @click.stop>
+      <div class="revoked-notice">
+        <span>Channel revoked and disconnected.</span>
+      </div>
+      <div class="revoked-actions">
+        <button
+          type="button"
+          class="btn btn-danger btn-sm"
+          title="Remove revoked channel from dashboard"
+          @click="emit('delete', channel.channelId)"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          Remove Channel
         </button>
       </div>
     </div>
@@ -218,5 +240,27 @@ function navigateToDetail() {
 .btn-sm {
   padding: 0.375rem 0.75rem;
   font-size: 0.75rem;
+}
+
+.revoked-body {
+  gap: 0.75rem;
+}
+
+.revoked-notice {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  background-color: var(--bg-surface-elevated);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+}
+
+.revoked-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-icon {
+  width: 14px;
+  height: 14px;
 }
 </style>

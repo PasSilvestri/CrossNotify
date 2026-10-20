@@ -14,9 +14,9 @@
   --text-muted: #64748b;
   --text-inverse: #ffffff;
 
-  --primary: #4f46e5;
-  --primary-hover: #4338ca;
-  --primary-light: #eef2ff;
+  --primary: #0077b6;
+  --primary-hover: #005f94;
+  --primary-light: #e0f2fe;
 
   --success: #10b981;
   --success-light: #ecfdf5;
@@ -49,9 +49,9 @@
     --text-muted: #9ca3af;
     --text-inverse: #111827;
 
-    --primary: #6366f1;
-    --primary-hover: #4f46e5;
-    --primary-light: #1e1b4b;
+    --primary: #0077b6;
+    --primary-hover: #0096c7;
+    --primary-light: rgba(0, 119, 182, 0.25);
 
     --success: #10b981;
     --success-light: #064e3b;

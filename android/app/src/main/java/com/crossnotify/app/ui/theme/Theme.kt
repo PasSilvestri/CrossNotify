@@ -12,10 +12,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF4F46E5),
+    primary = Color(0xFF0077B6),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE0E7FF),
-    onPrimaryContainer = Color(0xFF1E1B4B),
+    primaryContainer = Color(0xFFE0F2FE),
+    onPrimaryContainer = Color(0xFF002244),
     secondary = Color(0xFF0D9488),
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFCCFBF1),
@@ -25,10 +25,10 @@ private val LightColors = lightColorScheme(
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF818CF8),
-    onPrimary = Color(0xFF1E1B4B),
-    primaryContainer = Color(0xFF312E81),
-    onPrimaryContainer = Color(0xFFE0E7FF),
+    primary = Color(0xFF0077B6),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF003865),
+    onPrimaryContainer = Color(0xFFCAF0F8),
     secondary = Color(0xFF2DD4BF),
     onSecondary = Color(0xFF134E4A),
     secondaryContainer = Color(0xFF115E59),
@@ -38,11 +38,12 @@ private val DarkColors = darkColorScheme(
 @Composable
 fun CrossNotifyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
     val colorScheme = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
         darkTheme -> DarkColors
@@ -55,7 +56,7 @@ fun CrossNotifyTheme(
     )
 }
 
-fun parseHexColor(hex: String?, defaultColor: Color = Color(0xFF4F46E5)): Color {
+fun parseHexColor(hex: String?, defaultColor: Color = Color(0xFF0077B6)): Color {
     if (hex.isNullOrBlank()) return defaultColor
     return runCatching {
         Color(android.graphics.Color.parseColor(hex.trim()))

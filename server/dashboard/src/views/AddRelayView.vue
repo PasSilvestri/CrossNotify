@@ -10,10 +10,10 @@ const router = useRouter();
 const channelsStore = useChannelsStore();
 
 const channelName = ref('');
-const selectedColor = ref('#4F46E5');
+const selectedColor = ref('#0077b6');
 const colorPresets = [
-  '#4F46E5', // Indigo
-  '#2563EB', // Blue
+  '#0077b6', // Blue
+  '#2563EB', // Royal Blue
   '#059669', // Emerald
   '#D97706', // Amber
   '#DC2626', // Red
@@ -32,6 +32,39 @@ const expiresAt = ref<number | null>(null);
 const isExpired = ref(false);
 const isSuccess = ref(false);
 const connectedDeviceName = ref<string | null>(null);
+
+const isCopied = ref(false);
+const showRawJson = ref(false);
+const canShare = typeof navigator !== 'undefined' && !!navigator.share;
+
+async function handleCopy() {
+  if (!qrPayloadString.value) return;
+  try {
+    await navigator.clipboard.writeText(qrPayloadString.value);
+    isCopied.value = true;
+    setTimeout(() => {
+      isCopied.value = false;
+    }, 2000);
+  } catch (err) {
+    console.error('Failed to copy QR payload:', err);
+  }
+}
+
+async function handleShare() {
+  if (!qrPayloadString.value) return;
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: `CrossNotify Relay - ${channelName.value}`,
+        text: qrPayloadString.value,
+      });
+    } catch {
+      // User dismissed share dialog
+    }
+  } else {
+    handleCopy();
+  }
+}
 
 let pollInterval: NodeJS.Timeout | null = null;
 
@@ -192,6 +225,42 @@ onUnmounted(() => {
         </div>
 
         <QrCode :value="qrPayloadString" :size="260" aria-label="Relay Provisioning QR Code" />
+
+        <div class="payload-actions">
+          <button type="button" class="btn btn-secondary btn-sm" @click="handleCopy">
+            <svg v-if="!isCopied" class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span v-if="isCopied">✓ Copied to Clipboard</span>
+            <span v-else>Copy QR JSON</span>
+          </button>
+
+          <button v-if="canShare" type="button" class="btn btn-secondary btn-sm" @click="handleShare">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="5" r="3"></circle>
+              <circle cx="6" cy="12" r="3"></circle>
+              <circle cx="18" cy="19" r="3"></circle>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+            </svg>
+            <span>Send / Share JSON</span>
+          </button>
+
+          <button type="button" class="btn btn-ghost btn-sm" @click="showRawJson = !showRawJson">
+            <span>{{ showRawJson ? 'Hide JSON' : 'View JSON' }}</span>
+          </button>
+        </div>
+
+        <div v-if="showRawJson" class="raw-json-container">
+          <textarea
+            class="raw-json-textarea"
+            readonly
+            :value="qrPayloadString"
+            rows="5"
+            @focus="($event.target as HTMLTextAreaElement).select()"
+          ></textarea>
+        </div>
 
         <div class="timer-row">
           <span>QR expires in:</span>
@@ -423,5 +492,38 @@ onUnmounted(() => {
   padding: 0.75rem 1rem;
   border-radius: var(--radius-md);
   font-size: 0.8125rem;
+}
+
+.payload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.btn-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.raw-json-container {
+  width: 100%;
+  max-width: 440px;
+  margin-bottom: 0.5rem;
+}
+
+.raw-json-textarea {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 0.625rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  resize: vertical;
 }
 </style>

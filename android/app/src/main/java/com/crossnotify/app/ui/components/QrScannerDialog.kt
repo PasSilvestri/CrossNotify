@@ -2,7 +2,8 @@ package com.crossnotify.app.ui.components
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.util.Size
+import android.view.OrientationEventListener
+import android.view.Surface
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material3.AlertDialog
@@ -40,8 +42,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +67,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * CameraX + Google ML Kit Barcode Scanning dialog for `cn-relay` and `cn-sub` QR codes.
+ * Supports screen rotation, live camera orientation matching, and toggling between front/back camera.
  * Also includes a manual JSON paste dialog so developers/testers on emulators can input payloads.
  */
 @OptIn(ExperimentalGetImage::class)
@@ -76,15 +81,18 @@ fun QrScannerDialog(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    var hasCameraPermission by remember {
+    var hasCameraPermission by rememberSaveable {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                 PackageManager.PERMISSION_GRANTED
         )
     }
-    var showManualPasteDialog by remember { mutableStateOf(false) }
-    var manualJsonInput by remember { mutableStateOf("") }
+    var showManualPasteDialog by rememberSaveable { mutableStateOf(false) }
+    var manualJsonInput by rememberSaveable { mutableStateOf("") }
     val scanDispatched = remember { AtomicBoolean(false) }
+
+    var lensFacing by rememberSaveable { mutableIntStateOf(CameraSelector.LENS_FACING_BACK) }
+    var canSwitchCamera by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -116,69 +124,123 @@ fun QrScannerDialog(
                         BarcodeScanning.getClient(options)
                     }
 
-                    DisposableEffect(Unit) {
+                    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+                    var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
+                    var previewUseCase by remember { mutableStateOf<Preview?>(null) }
+                    var analysisUseCase by remember { mutableStateOf<ImageAnalysis?>(null) }
+
+                    // OrientationEventListener dynamically updates targetRotation for Preview & Analysis
+                    DisposableEffect(context) {
+                        val orientationEventListener = object : OrientationEventListener(context) {
+                            override fun onOrientationChanged(orientation: Int) {
+                                if (orientation == ORIENTATION_UNKNOWN) return
+                                val rotation = when (orientation) {
+                                    in 45..134 -> Surface.ROTATION_270
+                                    in 135..224 -> Surface.ROTATION_180
+                                    in 225..314 -> Surface.ROTATION_90
+                                    else -> Surface.ROTATION_0
+                                }
+                                previewUseCase?.targetRotation = rotation
+                                analysisUseCase?.targetRotation = rotation
+                            }
+                        }
+                        if (orientationEventListener.canDetectOrientation()) {
+                            orientationEventListener.enable()
+                        }
                         onDispose {
+                            orientationEventListener.disable()
                             runCatching { barcodeScanner.close() }
                             runCatching { cameraExecutor.shutdown() }
+                        }
+                    }
+
+                    // (Re)bind camera when provider, previewView, or lens facing changes
+                    LaunchedEffect(cameraProvider, previewViewRef, lensFacing) {
+                        val provider = cameraProvider ?: return@LaunchedEffect
+                        val previewView = previewViewRef ?: return@LaunchedEffect
+
+                        val displayRotation = previewView.display?.rotation ?: Surface.ROTATION_0
+
+                        val preview = Preview.Builder()
+                            .setTargetRotation(displayRotation)
+                            .build()
+                            .also {
+                                it.surfaceProvider = previewView.surfaceProvider
+                            }
+
+                        val imageAnalysis = ImageAnalysis.Builder()
+                            .setTargetRotation(displayRotation)
+                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                            .build()
+
+                        imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
+                            val mediaImage = imageProxy.image
+                            if (mediaImage != null && !scanDispatched.get()) {
+                                val inputImage = InputImage.fromMediaImage(
+                                    mediaImage,
+                                    imageProxy.imageInfo.rotationDegrees
+                                )
+                                barcodeScanner.process(inputImage)
+                                    .addOnSuccessListener { barcodes ->
+                                        for (barcode in barcodes) {
+                                            val raw = barcode.rawValue
+                                            if (!raw.isNullOrBlank() && raw.trim().startsWith("{")) {
+                                                if (scanDispatched.compareAndSet(false, true)) {
+                                                    onQrDetected(raw)
+                                                    break
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .addOnCompleteListener {
+                                        imageProxy.close()
+                                    }
+                            } else {
+                                imageProxy.close()
+                            }
+                        }
+
+                        previewUseCase = preview
+                        analysisUseCase = imageAnalysis
+
+                        val selector = CameraSelector.Builder()
+                            .requireLensFacing(lensFacing)
+                            .build()
+
+                        runCatching {
+                            provider.unbindAll()
+                            provider.bindToLifecycle(
+                                lifecycleOwner,
+                                selector,
+                                preview,
+                                imageAnalysis
+                            )
                         }
                     }
 
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
-                            val previewView = PreviewView(ctx)
-                            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                            cameraProviderFuture.addListener({
-                                val cameraProvider = runCatching { cameraProviderFuture.get() }.getOrNull()
-                                    ?: return@addListener
-
-                                val preview = Preview.Builder().build().also {
-                                    it.surfaceProvider = previewView.surfaceProvider
+                            PreviewView(ctx).apply {
+                                scaleType = PreviewView.ScaleType.FILL_CENTER
+                                addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                                    val rot = display?.rotation ?: Surface.ROTATION_0
+                                    previewUseCase?.targetRotation = rot
+                                    analysisUseCase?.targetRotation = rot
                                 }
-
-                                val imageAnalysis = ImageAnalysis.Builder()
-                                    .setTargetResolution(Size(1280, 720))
-                                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                    .build()
-
-                                imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                                    val mediaImage = imageProxy.image
-                                    if (mediaImage != null && !scanDispatched.get()) {
-                                        val inputImage = InputImage.fromMediaImage(
-                                            mediaImage,
-                                            imageProxy.imageInfo.rotationDegrees
-                                        )
-                                        barcodeScanner.process(inputImage)
-                                            .addOnSuccessListener { barcodes ->
-                                                for (barcode in barcodes) {
-                                                    val raw = barcode.rawValue
-                                                    if (!raw.isNullOrBlank() && raw.trim().startsWith("{")) {
-                                                        if (scanDispatched.compareAndSet(false, true)) {
-                                                            onQrDetected(raw)
-                                                            break
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            .addOnCompleteListener {
-                                                imageProxy.close()
-                                            }
-                                    } else {
-                                        imageProxy.close()
+                                val future = ProcessCameraProvider.getInstance(ctx)
+                                future.addListener({
+                                    val provider = runCatching { future.get() }.getOrNull() ?: return@addListener
+                                    val hasBack = provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+                                    val hasFront = provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
+                                    canSwitchCamera = hasBack && hasFront
+                                    if (!hasBack && hasFront && lensFacing == CameraSelector.LENS_FACING_BACK) {
+                                        lensFacing = CameraSelector.LENS_FACING_FRONT
                                     }
-                                }
-
-                                runCatching {
-                                    cameraProvider.unbindAll()
-                                    cameraProvider.bindToLifecycle(
-                                        lifecycleOwner,
-                                        CameraSelector.DEFAULT_BACK_CAMERA,
-                                        preview,
-                                        imageAnalysis
-                                    )
-                                }
-                            }, ContextCompat.getMainExecutor(ctx))
-                            previewView
+                                    cameraProvider = provider
+                                }, ContextCompat.getMainExecutor(ctx))
+                                previewViewRef = this
+                            }
                         }
                     )
                 } else {
@@ -200,7 +262,7 @@ fun QrScannerDialog(
                     }
                 }
 
-                // Top Overlay
+                // Top Overlay with title, camera flip button, and close button
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -226,12 +288,31 @@ fun QrScannerDialog(
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
-                        IconButton(onClick = onDismiss) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close scanner",
-                                tint = Color.White
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (canSwitchCamera) {
+                                IconButton(
+                                    onClick = {
+                                        lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) {
+                                            CameraSelector.LENS_FACING_FRONT
+                                        } else {
+                                            CameraSelector.LENS_FACING_BACK
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Cameraswitch,
+                                        contentDescription = "Rotate/Switch Camera",
+                                        tint = Color.White
+                                    )
+                                }
+                            }
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close scanner",
+                                    tint = Color.White
+                                )
+                            }
                         }
                     }
                 }

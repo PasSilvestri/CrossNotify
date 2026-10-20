@@ -45,6 +45,7 @@ data class PendingQrConfirmation(
 data class GeneratedSubscriberQrState(
     val channelName: String,
     val bitmap: Bitmap,
+    val payloadJson: String,
     val expiresAtMs: Long,
     val createdAtMs: Long = System.currentTimeMillis()
 )
@@ -252,6 +253,7 @@ class MainViewModel @Inject constructor(
                     GeneratedSubscriberQrState(
                         channelName = channel.name,
                         bitmap = bitmap,
+                        payloadJson = encoded,
                         expiresAtMs = expiresAt
                     )
                 }

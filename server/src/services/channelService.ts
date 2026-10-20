@@ -378,4 +378,31 @@ export class ChannelService {
     `).get() as { count: number };
     return row.count;
   }
+
+  deleteChannel(channelId: string): void {
+    const channel = this.getChannelById(channelId);
+    if (!channel) {
+      throw { status: 404, code: 'channel_not_found', message: 'Channel not found' };
+    }
+
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM notifications WHERE channel_id = ?').run(channelId);
+      this.db.prepare('DELETE FROM subscribers WHERE channel_id = ?').run(channelId);
+      this.db.prepare('DELETE FROM channels WHERE channel_id = ?').run(channelId);
+    })();
+  }
+
+  deleteRevokedChannels(): number {
+    let deleted = 0;
+    this.db.transaction(() => {
+      const revoked = this.db.prepare("SELECT channel_id FROM channels WHERE status = 'revoked'").all() as { channel_id: string }[];
+      for (const row of revoked) {
+        this.db.prepare('DELETE FROM notifications WHERE channel_id = ?').run(row.channel_id);
+        this.db.prepare('DELETE FROM subscribers WHERE channel_id = ?').run(row.channel_id);
+        this.db.prepare('DELETE FROM channels WHERE channel_id = ?').run(row.channel_id);
+        deleted++;
+      }
+    })();
+    return deleted;
+  }
 }

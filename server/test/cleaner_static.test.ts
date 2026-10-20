@@ -120,6 +120,36 @@ describe('Revocation, Cleaner & Static Serving (Tests 10, 11 & 12)', () => {
       .get(`/api/v1/channels/${channelId}`)
       .set('Authorization', `Bearer ${subKey}`);
     expect(subCall.status).toBe(401);
+
+    // Deleting an already-revoked channel permanently purges it from the DB
+    const deleteRes = await request(testEnv.ctx.app)
+      .delete(`/admin/api/channels/${channelId}`)
+      .set('Cookie', authCookie);
+    expect(deleteRes.status).toBe(200);
+    expect(deleteRes.body.deleted).toBe(true);
+
+    const checkChannel = testEnv.ctx.db.prepare('SELECT * FROM channels WHERE channel_id = ?').get(channelId);
+    expect(checkChannel).toBeUndefined();
+  });
+
+  it('purges all revoked channels via admin endpoint', async () => {
+    testEnv.ctx.db.prepare(`
+      INSERT INTO channels (channel_id, name, status, api_key_hash, api_key_prefix, created_at, revoked_at)
+      VALUES ('purge-rev-1', 'Revoked 1', 'revoked', 'hash_r1', 'cnr_test', ?, ?)
+    `).run(Date.now(), Date.now());
+    testEnv.ctx.db.prepare(`
+      INSERT INTO channels (channel_id, name, status, api_key_hash, api_key_prefix, created_at, revoked_at)
+      VALUES ('purge-rev-2', 'Revoked 2', 'revoked', 'hash_r2', 'cnr_test', ?, ?)
+    `).run(Date.now(), Date.now());
+
+    const purgeRes = await request(testEnv.ctx.app)
+      .delete('/admin/api/channels/revoked/purge')
+      .set('Cookie', authCookie);
+    expect(purgeRes.status).toBe(200);
+    expect(purgeRes.body.deletedCount).toBeGreaterThanOrEqual(2);
+
+    const remainingRevoked = (testEnv.ctx.db.prepare("SELECT COUNT(*) as count FROM channels WHERE status = 'revoked'").get() as { count: number }).count;
+    expect(remainingRevoked).toBe(0);
   });
 
   it('cleaner service prunes expired rows of each type', () => {

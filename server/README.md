@@ -145,7 +145,7 @@ CrossNotify uses SQLite, so it needs a **persistent disk**. Any VM or container 
 ### Example: Oracle Cloud Always Free VM
 ```bash
 sudo apt-get update && sudo apt-get install -y docker.io docker-compose-plugin git
-git clone https://github.com/<you>/CrossNotify.git && cd CrossNotify/server
+git clone https://github.com/PasSilvestri/CrossNotify.git && cd CrossNotify/server
 export DOMAIN=notify.example.com
 export CROSSNOTIFY_SECRET=$(openssl rand -base64 32)   # store this somewhere safe!
 sudo -E docker compose --profile https up -d
