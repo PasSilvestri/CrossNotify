@@ -1,0 +1,47 @@
+# Firebase credentials & secrets (uploaded via dashboard, never committed)
+serviceAccountKey.json
+*firebase-adminsdk*.json
+google-services.json
+secret.key
+*.key
+
+# Environment files
+*.env
+*.env.*
+!.env.example
+
+# Server dashboard build output & static files
+public/
+server/public/
+
+# Runtime data & SQLite
+data/
+server/data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Node.js
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Android & Gradle
+.gradle/
+build/
+app/build/
+*.apk
+*.aab
+local.properties
+.idea/
+*.iml
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/

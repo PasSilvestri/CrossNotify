@@ -1,0 +1,43 @@
+services:
+  crossnotify:
+    build: .
+    container_name: crossnotify
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - DATA_DIR=/app/data
+      - CROSSNOTIFY_SECRET=${CROSSNOTIFY_SECRET:-}
+      - CROSSNOTIFY_SETUP_TOKEN=${CROSSNOTIFY_SETUP_TOKEN:-}
+      - TRUST_PROXY=${TRUST_PROXY:-}
+      - COOKIE_SECURE=${COOKIE_SECURE:-auto}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - crossnotify_data:/app/data
+
+  # Automatic HTTPS reverse proxy with Let's Encrypt certificates
+  caddy:
+    image: caddy:2-alpine
+    container_name: crossnotify_caddy
+    restart: unless-stopped
+    profiles:
+      - https
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:?DOMAIN environment variable is required when using the https profile}
+    command: >
+      caddy reverse-proxy --from {$DOMAIN} --to crossnotify:3000
+    depends_on:
+      - crossnotify
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  crossnotify_data:
+  caddy_data:
+  caddy_config:
