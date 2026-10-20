@@ -13,7 +13,7 @@ export interface PushResult {
 
 export interface PushService {
   dispatch(channel: ChannelRow, n: NotificationRow): Promise<PushResult>;
-  sendChannelRevoked(channel: ChannelRow, tokens: string[]): Promise<void>;
+  sendChannelRevoked(channel: ChannelRow, tokens: string[], subscriberId?: string): Promise<void>;
 }
 
 export class FcmPushService implements PushService {
@@ -148,7 +148,7 @@ export class FcmPushService implements PushService {
     return { sent, failed, removed };
   }
 
-  async sendChannelRevoked(channel: ChannelRow, tokens: string[]): Promise<void> {
+  async sendChannelRevoked(channel: ChannelRow, tokens: string[], subscriberId?: string): Promise<void> {
     const messaging = this.firebaseAdminService.getMessaging();
     if (!messaging || tokens.length === 0) {
       return;
@@ -160,6 +160,7 @@ export class FcmPushService implements PushService {
         cn: '1',
         type: 'channel_revoked',
         channelId: channel.channel_id,
+        ...(subscriberId ? { subscriberId } : {}),
       },
       android: {
         priority: 'high',

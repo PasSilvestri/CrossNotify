@@ -95,6 +95,15 @@ export class SubscriberService {
         throw { status: 410, code: 'provisioning_expired', message: 'Subscriber provisioning key has expired' };
       }
 
+      // If this device/token already has an active subscription for this channel,
+      // revoke the prior one so the channel never accumulates duplicate active subscriptions for the same device
+      if (body.fcmToken) {
+        this.db.prepare(`
+          UPDATE subscribers SET status = 'revoked', revoked_at = ?
+          WHERE channel_id = ? AND fcm_token = ? AND status = 'active' AND id != ?
+        `).run(now, subscriber.channel_id, body.fcmToken, subscriber.id);
+      }
+
       this.db.prepare(`
         UPDATE subscribers SET
           status = 'active',

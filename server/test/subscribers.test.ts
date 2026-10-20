@@ -169,6 +169,7 @@ describe('Subscriber Key Engine & Individual Revocation (Test 9)', () => {
     // Verify revoked push was sent for sub 1
     expect(testEnv.mockPush.revokedCalls.length).toBe(1);
     expect(testEnv.mockPush.revokedCalls[0].tokens).toEqual(['fcm_1']);
+    expect(testEnv.mockPush.revokedCalls[0].subscriberId).toBe(sub1Id);
 
     // Sub 1 key fails immediately (401)
     const sub1Call = await request(testEnv.ctx.app)
@@ -188,5 +189,51 @@ describe('Subscriber Key Engine & Individual Revocation (Test 9)', () => {
       .get(`/api/v1/channels/${channelId}`)
       .set('Authorization', `Bearer ${relayKey}`);
     expect(relayCall.status).toBe(200);
+  });
+
+  it('supersedes previous active subscriber when same FCM token initializes again', async () => {
+    // Mint subscriber A and B on same channel
+    const subA = await request(testEnv.ctx.app)
+      .post(`/api/v1/channels/${channelId}/subscribers/keys`)
+      .set('Authorization', `Bearer ${relayKey}`);
+    const subB = await request(testEnv.ctx.app)
+      .post(`/api/v1/channels/${channelId}/subscribers/keys`)
+      .set('Authorization', `Bearer ${relayKey}`);
+
+    // Init A with token "fcm_phone_xyz"
+    await request(testEnv.ctx.app)
+      .post(`/api/v1/channels/${channelId}/subscribers/init`)
+      .set('Authorization', `Bearer ${subA.body.apiKey}`)
+      .send({ fcmToken: 'fcm_phone_xyz', deviceName: 'My Phone' });
+
+    // Channel has 1 subscriber (plus sub2 from previous test)
+    const chAfterA = await request(testEnv.ctx.app)
+      .get(`/admin/api/channels/${channelId}`)
+      .set('Cookie', authCookie);
+    const countA = chAfterA.body.subscriberCount;
+
+    // Init B with SAME token "fcm_phone_xyz"
+    await request(testEnv.ctx.app)
+      .post(`/api/v1/channels/${channelId}/subscribers/init`)
+      .set('Authorization', `Bearer ${subB.body.apiKey}`)
+      .send({ fcmToken: 'fcm_phone_xyz', deviceName: 'My Phone' });
+
+    // Count must not increase because A was superseded
+    const chAfterB = await request(testEnv.ctx.app)
+      .get(`/admin/api/channels/${channelId}`)
+      .set('Cookie', authCookie);
+    expect(chAfterB.body.subscriberCount).toBe(countA);
+
+    // Sub A key is now revoked (401)
+    const checkA = await request(testEnv.ctx.app)
+      .get(`/api/v1/channels/${channelId}`)
+      .set('Authorization', `Bearer ${subA.body.apiKey}`);
+    expect(checkA.status).toBe(401);
+
+    // Sub B key is active (200)
+    const checkB = await request(testEnv.ctx.app)
+      .get(`/api/v1/channels/${channelId}`)
+      .set('Authorization', `Bearer ${subB.body.apiKey}`);
+    expect(checkB.status).toBe(200);
   });
 });

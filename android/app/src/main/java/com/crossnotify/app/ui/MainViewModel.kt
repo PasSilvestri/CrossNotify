@@ -182,6 +182,11 @@ class MainViewModel @Inject constructor(
                             _statusMessage.value = "Expected a Relay QR (cn-relay), but scanned a Subscriber QR (cn-sub)."
                             return@launch
                         }
+                        val existing = repository.getSubscription(parsed.payload.channel.id)
+                        if (existing != null && existing.status == "active") {
+                            _statusMessage.value = "Already subscribed: You already have an active subscription to '${existing.name}' on this device."
+                            return@launch
+                        }
                         val isHttp = QrPayloadParser.isInsecureHttp(parsed.payload.server.url) &&
                             !allowInsecureHttpByDefault.value
                         val hasConflict = repository.hasFirebaseParameterConflict(

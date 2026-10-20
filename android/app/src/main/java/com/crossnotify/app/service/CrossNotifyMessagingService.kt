@@ -44,8 +44,9 @@ class CrossNotifyMessagingService : FirebaseMessagingService() {
         serviceScope.launch {
             when (type) {
                 "channel_revoked" -> {
-                    Log.i(TAG, "Received channel_revoked push for channel $channelId")
-                    repository.handleSubscriptionRevoked(channelId)
+                    val incomingSubId = data["subscriberId"]?.takeIf { it.isNotBlank() }
+                    Log.i(TAG, "Received channel_revoked push for channel $channelId (subscriberId=$incomingSubId)")
+                    repository.handleSubscriptionRevoked(channelId, incomingSubId)
                 }
                 "notification" -> {
                     val notificationId = data["notificationId"]?.takeIf { it.isNotBlank() } ?: return@launch

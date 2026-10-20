@@ -90,6 +90,7 @@ class CrossNotifyRepository @Inject constructor(
     fun observeFilterPackages(channelId: String): Flow<List<String>> = relayChannelDao.observeFilterPackages(channelId)
     fun observeSubscriptions(): Flow<List<SubscriptionEntity>> = subscriptionDao.observeAll()
     fun observeSubscription(channelId: String): Flow<SubscriptionEntity?> = subscriptionDao.observeById(channelId)
+    suspend fun getSubscription(channelId: String): SubscriptionEntity? = subscriptionDao.getById(channelId)
     fun observeInbox(): Flow<List<InboxEntity>> = inboxDao.observeAll()
     fun observeOutbox(): Flow<List<OutboxEntity>> = outboxDao.observeAll()
 
@@ -498,6 +499,11 @@ class CrossNotifyRepository @Inject constructor(
         deliveryMode: String,
         insecureHttpAccepted: Boolean
     ): SubscriptionEntity {
+        val existing = subscriptionDao.getById(payload.channel.id)
+        if (existing != null && existing.status == "active") {
+            throw IllegalStateException("Device is already subscribed to '${existing.name}'.")
+        }
+
         val e2eKeyBytes = E2ECryptoEngine.decodeBase64Url(payload.e2e.key)
         require(e2eKeyBytes.size == 32) {
             "Invalid E2E key length in QR code (expected 32 bytes, got ${e2eKeyBytes.size})"
@@ -630,10 +636,15 @@ class CrossNotifyRepository @Inject constructor(
     /**
      * Handles revocation events when the server or relay closes a channel or revokes this subscriber.
      * Marks the local record as revoked, purges stored credentials, and alerts the user.
+     * If [targetSubscriberId] is provided, only revokes if this device's subscriber ID matches.
      */
-    suspend fun handleSubscriptionRevoked(channelId: String) {
+    suspend fun handleSubscriptionRevoked(channelId: String, targetSubscriberId: String? = null) {
         val sub = subscriptionDao.getById(channelId) ?: return
         if (sub.status == "revoked") return
+        if (targetSubscriberId != null && sub.subscriberId != targetSubscriberId) {
+            Log.d(TAG, "Ignoring revocation for channel $channelId: target subscriberId $targetSubscriberId does not match device subscriberId ${sub.subscriberId}")
+            return
+        }
         subscriptionDao.markRevokedAndWipeKeys(channelId)
         notificationHelper.postSystemAlert(
             title = "Subscription revoked: ${sub.name}",

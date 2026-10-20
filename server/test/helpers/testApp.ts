@@ -16,8 +16,8 @@ export class MockPushService implements PushService {
     return { sent: 1, failed: 0, removed: 0 };
   }
 
-  async sendChannelRevoked(channel: ChannelRow, tokens: string[]): Promise<void> {
-    this.revokedCalls.push({ channel, tokens });
+  async sendChannelRevoked(channel: ChannelRow, tokens: string[], subscriberId?: string): Promise<void> {
+    this.revokedCalls.push({ channel, tokens, subscriberId });
   }
 
   reset() {

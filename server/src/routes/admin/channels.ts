@@ -125,7 +125,7 @@ export function createAdminChannelsRouter(
 
       const { fcmToken } = subscriberService.revokeSubscriber(channelId, subscriberId);
       if (fcmToken) {
-        pushService.sendChannelRevoked(channel, [fcmToken]).catch((err) => {
+        pushService.sendChannelRevoked(channel, [fcmToken], subscriberId).catch((err) => {
           console.error('[channels] Error sending channel_revoked push to subscriber:', err);
         });
       }
