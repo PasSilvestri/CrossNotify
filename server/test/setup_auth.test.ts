@@ -35,6 +35,18 @@ describe('Setup & Admin Auth (Tests 1 & 2)', () => {
     expect(res.body.error).toBe('invalid_setup_token');
   });
 
+  it('rejects setup with password shorter than 8 characters (422)', async () => {
+    const res = await request(testEnv.ctx.app)
+      .post('/admin/api/setup/admin')
+      .send({
+        setupToken: 'test-setup-token-1234567890',
+        username: 'admin',
+        password: 'pass123', // 7 characters
+      });
+
+    expect(res.status).toBe(422);
+  });
+
   it('completes setup with correct token, sets cookie and moves to NEEDS_FIREBASE', async () => {
     const res = await request(testEnv.ctx.app)
       .post('/admin/api/setup/admin')

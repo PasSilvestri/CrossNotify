@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useChannelsStore, type ChannelDetail } from '../stores/channels.js';
 import StatusBadge from '../components/StatusBadge.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
+import { LIMITS } from '../constants.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -126,7 +127,7 @@ onMounted(loadChannel);
       <!-- Editable form -->
       <div v-if="isEditing" class="edit-box">
         <div class="edit-inputs">
-          <input v-model="editName" type="text" placeholder="Channel Name" required maxlength="40" />
+          <input v-model="editName" type="text" placeholder="Channel Name" required :maxlength="LIMITS.CHANNEL_NAME_MAX" />
           <input v-model="editColor" type="color" class="color-picker" />
         </div>
         <div class="edit-actions">

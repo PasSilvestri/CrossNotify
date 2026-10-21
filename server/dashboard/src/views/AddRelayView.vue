@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useChannelsStore } from '../stores/channels.js';
 import { formatApiError } from '../api/client.js';
+import { LIMITS } from '../constants.js';
 import QrCode from '../components/QrCode.vue';
 import CountdownTimer from '../components/CountdownTimer.vue';
 
@@ -186,7 +187,7 @@ onUnmounted(() => {
             v-model="channelName"
             type="text"
             required
-            maxlength="40"
+            :maxlength="LIMITS.CHANNEL_NAME_MAX"
             placeholder="e.g. Work Phone, Pixel 8, Personal"
             autofocus
           />
@@ -352,6 +353,12 @@ onUnmounted(() => {
 .color-choice {
   width: 32px;
   height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  box-sizing: border-box;
+  aspect-ratio: 1;
+  flex-shrink: 0;
   border-radius: 50%;
   border: 2px solid transparent;
   cursor: pointer;

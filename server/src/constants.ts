@@ -3,7 +3,7 @@ export const ANDROID_PACKAGE_NAME = 'com.crossnotify.app';
 export const LIMITS = {
   CHANNEL_NAME_MIN: 1,
   CHANNEL_NAME_MAX: 40,
-  PASSWORD_MIN: 12,
+  PASSWORD_MIN: 8,
   PASSWORD_MAX: 128,
   USERNAME_MIN: 3,
   USERNAME_MAX: 32,

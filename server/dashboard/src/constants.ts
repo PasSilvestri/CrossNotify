@@ -1,0 +1,10 @@
+export const LIMITS = {
+  CHANNEL_NAME_MIN: 1,
+  CHANNEL_NAME_MAX: 40,
+  PASSWORD_MIN: 8,
+  PASSWORD_MAX: 128,
+  USERNAME_MIN: 3,
+  USERNAME_MAX: 32,
+  USERNAME_REGEX: /^[a-zA-Z0-9._-]+$/,
+  APP_NAME_MAX: 64,
+} as const;

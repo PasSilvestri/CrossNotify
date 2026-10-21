@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.js';
 import { useSetupStore } from '../stores/setup.js';
 import { apiRequest, formatApiError } from '../api/client.js';
+import { LIMITS } from '../constants.js';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -72,8 +73,8 @@ async function handleUpdatePassword() {
   passwordError.value = null;
   passwordSuccess.value = false;
 
-  if (newPassword.value.length < 12) {
-    passwordError.value = 'New password must be at least 12 characters.';
+  if (newPassword.value.length < LIMITS.PASSWORD_MIN) {
+    passwordError.value = `New password must be at least ${LIMITS.PASSWORD_MIN} characters.`;
     return;
   }
   if (newPassword.value !== confirmPassword.value) {
@@ -207,8 +208,8 @@ onMounted(loadSettings);
             v-model="newPassword"
             type="password"
             required
-            minlength="12"
-            placeholder="At least 12 characters"
+            :minlength="LIMITS.PASSWORD_MIN"
+            :placeholder="`At least ${LIMITS.PASSWORD_MIN} characters`"
           />
         </div>
 

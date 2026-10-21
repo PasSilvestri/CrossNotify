@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useSetupStore } from '../stores/setup.js';
 import { useAuthStore } from '../stores/auth.js';
 import { formatApiError } from '../api/client.js';
+import { LIMITS } from '../constants.js';
 
 const router = useRouter();
 const setupStore = useSetupStore();
@@ -23,12 +24,12 @@ async function handleSubmit() {
     error.value = 'Setup token is required. Check your server logs.';
     return;
   }
-  if (username.value.length < 3 || username.value.length > 32) {
-    error.value = 'Username must be between 3 and 32 characters.';
+  if (username.value.length < LIMITS.USERNAME_MIN || username.value.length > LIMITS.USERNAME_MAX) {
+    error.value = `Username must be between ${LIMITS.USERNAME_MIN} and ${LIMITS.USERNAME_MAX} characters.`;
     return;
   }
-  if (password.value.length < 12) {
-    error.value = 'Password must be at least 12 characters.';
+  if (password.value.length < LIMITS.PASSWORD_MIN) {
+    error.value = `Password must be at least ${LIMITS.PASSWORD_MIN} characters.`;
     return;
   }
   if (password.value !== confirmPassword.value) {
@@ -100,8 +101,8 @@ async function handleSubmit() {
             v-model="username"
             type="text"
             required
-            minlength="3"
-            maxlength="32"
+            :minlength="LIMITS.USERNAME_MIN"
+            :maxlength="LIMITS.USERNAME_MAX"
           />
         </div>
 
@@ -112,8 +113,8 @@ async function handleSubmit() {
             v-model="password"
             type="password"
             required
-            minlength="12"
-            placeholder="At least 12 characters"
+            :minlength="LIMITS.PASSWORD_MIN"
+            :placeholder="`At least ${LIMITS.PASSWORD_MIN} characters`"
           />
         </div>
 
