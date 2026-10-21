@@ -104,9 +104,9 @@ CrossNotify/
 │   ├── docker-compose.yml           # Multi-stage Compose deployment (with Caddy HTTPS profile)
 │   ├── Dockerfile                   # Optimized multi-stage production Dockerfile
 │   └── README.md                    # Server configuration and environment variable reference
-├── CROSSNOTIFY_ARCHITECTURE_PLAN.md # Master engineering specification
+├── ARCHITECTURE.md                  # System architecture and protocol specification
 ├── FIREBASE_SETUP_GUIDE.md          # Visual guide to generating Firebase credentials
-├── OVERHAUL_SERVER.md               # Backend API and database architecture details
+├── SERVER_DOCUMENTATION.md          # Backend API, database schema, and dashboard documentation
 └── README.md                        # This document
 ```
 
@@ -287,8 +287,8 @@ Extract the archive into your data volume or directory, set `CROSSNOTIFY_SECRET`
 - 📖 **[Android Client Documentation](android/README.md)**: Build instructions, signing configs, background optimization tips, and Android architecture.
 - 📖 **[Server Documentation](server/README.md)**: Server environment variables, reverse proxy configuration, and admin API overview.
 - 📖 **[Firebase Setup Guide](FIREBASE_SETUP_GUIDE.md)**: Complete walkthrough for Google Firebase console configuration.
-- 📖 **[System Architecture Plan](CROSSNOTIFY_ARCHITECTURE_PLAN.md)**: Comprehensive protocol specification and crypto flows.
-- 📖 **[Server Overhaul Specification](OVERHAUL_SERVER.md)**: Database schemas, migration design, and REST endpoint definitions.
+- 📖 **[System Architecture](ARCHITECTURE.md)**: Comprehensive protocol specification and crypto flows.
+- 📖 **[Server Documentation](SERVER_DOCUMENTATION.md)**: Database schemas, REST endpoint definitions, and dashboard architecture.
 
 ---
 

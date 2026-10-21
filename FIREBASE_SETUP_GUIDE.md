@@ -109,7 +109,7 @@ FCM issues push tokens only to apps registered in the project. The precompiled A
 
 ## Appendix — For Android Developers
 
-The Android app configures Firebase **at runtime** from the QR code parameters (`projectId`, `appId`, `apiKey`, `senderId`), using named `FirebaseApp` instances. Details are in [CROSSNOTIFY_ARCHITECTURE_PLAN.md §7.3](./CROSSNOTIFY_ARCHITECTURE_PLAN.md#73-runtime-firebase-configuration-on-android-no-google-servicesjson-in-the-apk).
+The Android app configures Firebase **at runtime** from the QR code parameters (`projectId`, `appId`, `apiKey`, `senderId`), using named `FirebaseApp` instances. Details are in [ARCHITECTURE.md §7.3](./ARCHITECTURE.md#73-runtime-firebase-configuration-on-android--multi-project-fallback).
 
 So, unlike the snippets the Firebase console shows:
 - **Do not** apply the `com.google.gms.google-services` Gradle plugin.

@@ -159,7 +159,7 @@ Back up the `crossnotify_data` volume (the SQLite database) and, separately, you
 
 ## API Overview
 
-Full request and response definitions are in [OVERHAUL_SERVER.md](../OVERHAUL_SERVER.md) §10 and §12.
+Full request and response definitions are in [SERVER_DOCUMENTATION.md](../SERVER_DOCUMENTATION.md) §10 and §12.
 
 **Public**
 - `GET /health` → `{ "status": "ok", "state": "READY" }`
