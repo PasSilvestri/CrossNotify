@@ -4,6 +4,7 @@ import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.crossnotify.app.data.repository.CrossNotifyRepository
+import com.crossnotify.app.util.AppIconHelper
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +68,7 @@ class CrossNotifyListenerService : NotificationListenerService() {
         if (title.isEmpty() && effectiveText.isEmpty()) return
 
         val appLabel = resolveAppLabel(pkg)
+        val appIconBase64 = AppIconHelper.getAppIconBase64(applicationContext, pkg)
         val category = notification.category.orEmpty()
         val postedAt = if (posted.postTime > 0) posted.postTime else System.currentTimeMillis()
         val sbnKey = posted.key ?: "$pkg:${posted.id}"
@@ -77,6 +79,7 @@ class CrossNotifyListenerService : NotificationListenerService() {
             repository.captureAndQueueNotification(
                 packageName = pkg,
                 appLabel = appLabel,
+                appIconBase64 = appIconBase64,
                 title = title,
                 text = effectiveText,
                 subText = subText,

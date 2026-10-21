@@ -1,5 +1,6 @@
 package com.crossnotify.app.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Inbox
@@ -45,12 +47,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.crossnotify.app.data.repository.DecryptedInboxItem
 import com.crossnotify.app.ui.MainViewModel
 import com.crossnotify.app.ui.theme.parseHexColor
+import com.crossnotify.app.util.AppIconHelper
 import java.text.DateFormat
 import java.util.Date
 
@@ -232,13 +236,33 @@ fun InboxScreen(viewModel: MainViewModel) {
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = pt?.app?.ifBlank { item.entity.appName ?: "App" }
-                                                ?: item.entity.appName ?: "Encrypted Payload",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        ) {
+                                            val iconBitmap = remember(pt?.icon) {
+                                                AppIconHelper.decodeBase64ToBitmap(pt?.icon)
+                                            }
+                                            if (iconBitmap != null) {
+                                                Image(
+                                                    bitmap = iconBitmap.asImageBitmap(),
+                                                    contentDescription = null,
+                                                    modifier = Modifier
+                                                        .size(20.dp)
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                            }
+                                            Text(
+                                                text = pt?.app?.ifBlank { item.entity.appName ?: "App" }
+                                                    ?: item.entity.appName ?: "Encrypted Payload",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                         Text(
                                             text = formatTimestamp(item.entity.relayTimestamp),
                                             style = MaterialTheme.typography.labelSmall,
@@ -292,10 +316,25 @@ fun InboxScreen(viewModel: MainViewModel) {
         AlertDialog(
             onDismissRequest = { selectedItem = null },
             title = {
-                Text(
-                    text = pt?.title?.ifBlank { pt.app } ?: "Decrypted Notification",
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val iconBitmap = remember(pt?.icon) {
+                        AppIconHelper.decodeBase64ToBitmap(pt?.icon)
+                    }
+                    if (iconBitmap != null) {
+                        Image(
+                            bitmap = iconBitmap.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                    }
+                    Text(
+                        text = pt?.title?.ifBlank { pt.app } ?: "Decrypted Notification",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

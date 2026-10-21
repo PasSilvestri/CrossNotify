@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -38,12 +40,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.crossnotify.app.crypto.NotificationPlaintext
 import com.crossnotify.app.data.db.SubscriptionEntity
 import com.crossnotify.app.data.repository.CrossNotifyRepository
 import com.crossnotify.app.ui.theme.CrossNotifyTheme
+import com.crossnotify.app.util.AppIconHelper
 import dagger.hilt.android.AndroidEntryPoint
 import java.text.DateFormat
 import java.util.Date
@@ -165,12 +170,26 @@ class DecryptActivity : AppCompatActivity() {
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = Icons.Default.LockOpen,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
+                                            val iconBitmap = remember(pt.icon) {
+                                                AppIconHelper.decodeBase64ToBitmap(pt.icon)
+                                            }
+                                            if (iconBitmap != null) {
+                                                Image(
+                                                    bitmap = iconBitmap.asImageBitmap(),
+                                                    contentDescription = null,
+                                                    modifier = Modifier
+                                                        .size(24.dp)
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                            } else {
+                                                Icon(
+                                                    imageVector = Icons.Default.LockOpen,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                            }
                                             Surface(
                                                 color = MaterialTheme.colorScheme.primaryContainer,
                                                 shape = MaterialTheme.shapes.small

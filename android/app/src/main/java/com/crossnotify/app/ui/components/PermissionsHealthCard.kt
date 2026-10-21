@@ -57,7 +57,10 @@ data class PermissionHealthState(
     val postNotificationsGranted: Boolean,
     val cameraGranted: Boolean,
     val batteryOptimizationIgnored: Boolean
-)
+) {
+    val allGranted: Boolean
+        get() = notificationListenerGranted && postNotificationsGranted && cameraGranted && batteryOptimizationIgnored
+}
 
 fun queryPermissionHealth(context: Context): PermissionHealthState {
     val listenerPackages = NotificationManagerCompat.getEnabledListenerPackages(context)

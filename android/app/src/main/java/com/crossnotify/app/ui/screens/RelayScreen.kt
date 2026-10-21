@@ -1,5 +1,7 @@
 package com.crossnotify.app.ui.screens
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -46,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -55,12 +59,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.crossnotify.app.data.db.RelayChannelEntity
 import com.crossnotify.app.ui.MainViewModel
 import com.crossnotify.app.ui.components.PermissionsHealthSection
+import com.crossnotify.app.ui.components.queryPermissionHealth
 import com.crossnotify.app.ui.theme.parseHexColor
+import com.crossnotify.app.util.AppIcon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,6 +123,31 @@ fun RelayScreen(
     }
 
     val serverById = remember(servers) { servers.associateBy { it.id } }
+    val context = LocalContext.current
+    var healthState by remember { mutableStateOf(queryPermissionHealth(context)) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                healthState = queryPermissionHealth(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    var showMissingListenerDialog by remember { mutableStateOf(false) }
+
+    val handleScanRelayQr = {
+        val currentHealth = queryPermissionHealth(context)
+        healthState = currentHealth
+        if (!currentHealth.notificationListenerGranted) {
+            showMissingListenerDialog = true
+        } else {
+            onScanRelayQr()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -130,7 +165,7 @@ fun RelayScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onScanRelayQr) {
+            FloatingActionButton(onClick = handleScanRelayQr) {
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -149,9 +184,9 @@ fun RelayScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (channels.isNotEmpty()) {
+            if (channels.isEmpty() && !healthState.allGranted) {
                 item {
-                    PermissionsHealthSection(hasRelayChannels = true)
+                    PermissionsHealthSection(hasRelayChannels = false)
                 }
             }
 
@@ -186,7 +221,7 @@ fun RelayScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(16.dp))
-                            Button(onClick = onScanRelayQr) {
+                            Button(onClick = handleScanRelayQr) {
                                 Icon(Icons.Default.Add, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Scan Dashboard QR (cn-relay)")
@@ -264,6 +299,47 @@ fun RelayScreen(
                 }
             }
         }
+    }
+
+    if (showMissingListenerDialog) {
+        AlertDialog(
+            onDismissRequest = { showMissingListenerDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.NotificationsActive,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            title = {
+                Text(
+                    text = "Notification Access Required",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "CrossNotify requires Notification Access so it can intercept and relay incoming notifications from this device. Please grant Notification Access in Android Settings before adding a relay channel."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showMissingListenerDialog = false
+                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        })
+                    }
+                ) {
+                    Text("Grant in Settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMissingListenerDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -423,6 +499,11 @@ private fun RelayChannelDetailContent(
                         onCheckedChange = { checked -> onTogglePackageFilter(app.packageName, checked) }
                     )
                     Spacer(modifier = Modifier.width(8.dp))
+                    AppIcon(
+                        packageName = app.packageName,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = app.label,

@@ -123,6 +123,8 @@ class NotificationHelper @Inject constructor(
         val contentText = plaintext.text.ifBlank { plaintext.bigText }
         val expandedText = plaintext.bigText.ifBlank { plaintext.text }
 
+        val appIconBitmap = plaintext.icon?.let { AppIconHelper.decodeBase64ToBitmap(it) }
+
         val builder = NotificationCompat.Builder(context, sysChannelId)
             .setSmallIcon(R.drawable.ic_notification)
             .setSubText(headerPrefix)
@@ -135,6 +137,10 @@ class NotificationHelper @Inject constructor(
             .setWhen(plaintext.postedAt)
             .setShowWhen(true)
             .setContentIntent(pendingIntent)
+
+        if (appIconBitmap != null) {
+            builder.setLargeIcon(appIconBitmap)
+        }
 
         NotificationManagerCompat.from(context).notify(
             plaintext.id,

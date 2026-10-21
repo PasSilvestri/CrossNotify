@@ -30,7 +30,8 @@ data class NotificationPlaintext(
     val bigText: String = "",
     val category: String = "",
     val postedAt: Long,
-    val origin: OriginInfo
+    val origin: OriginInfo,
+    val icon: String? = null
 )
 
 data class EncryptedNotificationBlob(
@@ -74,7 +75,8 @@ class E2ECryptoEngine @Inject constructor() {
             return payload.copy(
                 title = truncateWithEllipsis(payload.title, MAX_TITLE_CHARS),
                 text = truncateWithEllipsis(payload.text, MAX_TEXT_CHARS),
-                bigText = truncateWithEllipsis(payload.bigText, MAX_BIG_TEXT_CHARS)
+                bigText = truncateWithEllipsis(payload.bigText, MAX_BIG_TEXT_CHARS),
+                icon = payload.icon?.takeIf { it.length <= 15000 }
             )
         }
 

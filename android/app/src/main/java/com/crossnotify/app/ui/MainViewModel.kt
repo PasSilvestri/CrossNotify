@@ -3,6 +3,7 @@ package com.crossnotify.app.ui
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.crossnotify.app.data.api.ChannelInfoResponse
@@ -165,6 +166,11 @@ class MainViewModel @Inject constructor(
                             _statusMessage.value = "Expected a Subscriber QR (cn-sub), but scanned a Relay QR (cn-relay)."
                             return@launch
                         }
+                        val listenerPackages = NotificationManagerCompat.getEnabledListenerPackages(context)
+                        if (!listenerPackages.contains(context.packageName)) {
+                            _statusMessage.value = "Notification Access required: Please grant Notification Access in Settings before activating a relay channel."
+                            return@launch
+                        }
                         val isHttp = QrPayloadParser.isInsecureHttp(parsed.payload.server.url) &&
                             !allowInsecureHttpByDefault.value
                         val hasConflict = repository.hasFirebaseParameterConflict(
@@ -205,6 +211,11 @@ class MainViewModel @Inject constructor(
     }
 
     fun confirmRelayProvisioning(payload: CnRelayQrPayload, acceptInsecureHttp: Boolean) {
+        val listenerPackages = NotificationManagerCompat.getEnabledListenerPackages(context)
+        if (!listenerPackages.contains(context.packageName)) {
+            _statusMessage.value = "Cannot create relay channel: Notification Access has not been granted."
+            return
+        }
         viewModelScope.launch {
             _isBusy.value = true
             _pendingQrConfirmation.value = null

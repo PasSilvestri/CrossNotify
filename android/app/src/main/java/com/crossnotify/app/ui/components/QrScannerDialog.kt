@@ -1,6 +1,7 @@
 package com.crossnotify.app.ui.components
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.view.OrientationEventListener
 import android.view.Surface
@@ -19,9 +20,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -41,6 +45,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,12 +56,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.ContextCompat
+import androidx.core.view.OnApplyWindowInsetsListener
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -108,8 +120,57 @@ fun QrScannerDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
+        val view = LocalView.current
+        val density = LocalDensity.current
+        val activity = context as? Activity
+
+        // Configure dialog window for full edge-to-edge transparent navigation
+        val dialogWindow = (view.parent as? DialogWindowProvider)?.window
+        SideEffect {
+            dialogWindow?.let { win ->
+                WindowCompat.setDecorFitsSystemWindows(win, false)
+                win.navigationBarColor = android.graphics.Color.TRANSPARENT
+                win.statusBarColor = android.graphics.Color.TRANSPARENT
+            }
+        }
+
+        // Measure exact system navigation bar / gesture navigation insets in pixels
+        var navBarBottomPx by remember {
+            val decorView = activity?.window?.decorView ?: view
+            val insets = ViewCompat.getRootWindowInsets(decorView)
+            mutableStateOf(
+                insets?.getInsets(
+                    WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.mandatorySystemGestures()
+                )?.bottom ?: 0
+            )
+        }
+
+        DisposableEffect(view) {
+            val decorView = activity?.window?.decorView ?: view
+            val listener = OnApplyWindowInsetsListener { _, insets ->
+                val bottom = insets.getInsets(
+                    WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.mandatorySystemGestures()
+                ).bottom
+                if (bottom > 0) {
+                    navBarBottomPx = bottom
+                }
+                insets
+            }
+            ViewCompat.setOnApplyWindowInsetsListener(decorView, listener)
+            onDispose {
+                ViewCompat.setOnApplyWindowInsetsListener(decorView, null)
+            }
+        }
+
+        val navBarInsetDp = with(density) { navBarBottomPx.toDp() }
+        val composeNavBarsDp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val effectiveNavBarPadding = maxOf(navBarInsetDp, composeNavBarsDp)
+
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = Color.Black
@@ -317,13 +378,18 @@ fun QrScannerDialog(
                     }
                 }
 
-                // Bottom Overlay with Manual Paste fallback
+                // Bottom Overlay with Manual Paste fallback (placed right above the OS navigation bar)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
                         .background(Color.Black.copy(alpha = 0.65f))
-                        .padding(16.dp),
+                        .padding(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 16.dp,
+                            bottom = effectiveNavBarPadding + 16.dp
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     OutlinedButton(

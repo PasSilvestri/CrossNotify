@@ -3,6 +3,7 @@ package com.crossnotify.app.data.repository
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import androidx.core.app.NotificationManagerCompat
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
@@ -156,6 +157,11 @@ class CrossNotifyRepository @Inject constructor(
         payload: CnRelayQrPayload,
         insecureHttpAccepted: Boolean
     ): RelayChannelEntity {
+        val listenerPackages = NotificationManagerCompat.getEnabledListenerPackages(context)
+        if (!listenerPackages.contains(context.packageName)) {
+            throw IllegalStateException("Notification Access has not been granted on this device. Please grant it in system settings.")
+        }
+
         val now = System.currentTimeMillis()
         if (payload.exp > 0 && now > payload.exp) {
             throw IllegalStateException("This relay provisioning QR code has expired. Generate a new QR on the dashboard.")
@@ -331,6 +337,7 @@ class CrossNotifyRepository @Inject constructor(
     suspend fun captureAndQueueNotification(
         packageName: String,
         appLabel: String,
+        appIconBase64: String?,
         title: String,
         text: String,
         subText: String,
@@ -356,7 +363,8 @@ class CrossNotifyRepository @Inject constructor(
                 v = 1,
                 id = notificationId,
                 pkg = packageName,
-                app = appLabel,
+                app = if (channel.sendAppName) appLabel else "",
+                icon = if (channel.sendAppName) appIconBase64 else null,
                 title = title,
                 text = text,
                 subText = subText,

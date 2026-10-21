@@ -230,4 +230,37 @@ class E2ECryptoEngineTest {
         assertEquals(4000, decrypted.bigText.length)
         assertTrue(decrypted.bigText.endsWith("…"))
     }
+
+    @Test
+    fun `encrypt and decrypt round-trip preserves optional icon base64 payload`() {
+        val e2eKey = engine.generateE2EKey()
+        val channelId = "channel-icon-001"
+        val notificationId = "notif-icon-001"
+        val fakeIconBase64 = "iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAFDElEQVR42u2Yf..."
+
+        val payload = NotificationPlaintext(
+            v = 1,
+            id = notificationId,
+            pkg = "com.telegram.messenger",
+            app = "Telegram",
+            icon = fakeIconBase64,
+            title = "Channel Alert",
+            text = "Icon roundtrip test",
+            postedAt = 1792014058000L,
+            origin = OriginInfo(id = notificationId, hops = 0, path = listOf(channelId))
+        )
+
+        val encrypted = engine.encrypt(e2eKey, channelId, payload)
+        val decrypted = engine.decrypt(
+            e2eKey = e2eKey,
+            channelId = channelId,
+            notificationId = notificationId,
+            ivBase64Url = encrypted.iv,
+            ciphertextBase64Url = encrypted.ciphertext
+        )
+
+        assertEquals(fakeIconBase64, decrypted.icon)
+        assertEquals("Telegram", decrypted.app)
+        assertEquals(payload, decrypted)
+    }
 }
