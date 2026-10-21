@@ -110,6 +110,7 @@ class DecryptActivity : AppCompatActivity() {
                 Scaffold(
                     topBar = {
                         TopAppBar(
+                            expandedHeight = 56.dp,
                             title = { Text("Decrypted Notification", fontWeight = FontWeight.Bold) }
                         )
                     }

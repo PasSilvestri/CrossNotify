@@ -4,9 +4,11 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -56,8 +58,11 @@ fun SettingsScreen(viewModel: MainViewModel) {
     var editedDeviceName by remember(currentDeviceName) { mutableStateOf(currentDeviceName) }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                expandedHeight = 56.dp,
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
                     Column {
                         Text("Settings & Health", fontWeight = FontWeight.Bold)
@@ -161,7 +166,12 @@ fun SettingsScreen(viewModel: MainViewModel) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Max),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             OutlinedButton(
                                 onClick = {
                                     val intent = Intent(
@@ -169,13 +179,21 @@ fun SettingsScreen(viewModel: MainViewModel) {
                                         Uri.parse("https://dontkillmyapp.com")
                                     )
                                     runCatching { context.startActivity(intent) }
-                                }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("dontkillmyapp.com")
                             }
-                            OutlinedButton(onClick = { viewModel.refreshFcmTokensNow() }) {
+                            OutlinedButton(
+                                onClick = { viewModel.refreshFcmTokensNow() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                            ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null)
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Verify FCM Tokens")

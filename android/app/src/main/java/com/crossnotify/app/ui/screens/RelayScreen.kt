@@ -7,9 +7,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -61,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -150,8 +154,11 @@ fun RelayScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                expandedHeight = 56.dp,
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
                     Column {
                         Text("Relay Channels", fontWeight = FontWeight.Bold)
@@ -371,8 +378,11 @@ private fun RelayChannelDetailContent(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                expandedHeight = 56.dp,
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = { Text(channel.name, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -460,16 +470,43 @@ private fun RelayChannelDetailContent(
                             fontWeight = FontWeight.SemiBold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Max),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             FilterChip(
                                 selected = channel.filterMode == "deny_list",
                                 onClick = { onChangeFilterMode("deny_list") },
-                                label = { Text("Deny-List (Block Checked)") }
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                label = {
+                                    Text(
+                                        text = "Deny-List\n(Block Checked)",
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                    )
+                                }
                             )
                             FilterChip(
                                 selected = channel.filterMode == "allow_list",
                                 onClick = { onChangeFilterMode("allow_list") },
-                                label = { Text("Allow-List (Only Checked)") }
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                label = {
+                                    Text(
+                                        text = "Allow-List\n(Only Checked)",
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                    )
+                                }
                             )
                         }
                         Spacer(modifier = Modifier.height(8.dp))
