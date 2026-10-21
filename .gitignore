@@ -37,6 +37,10 @@ build/
 app/build/
 *.apk
 *.aab
+*.jks
+*.keystore
+*.p12
+*.pfx
 local.properties
 .idea/
 *.iml
