@@ -1,6 +1,7 @@
 import rateLimit from 'express-rate-limit';
 import type { Request, Response, NextFunction } from 'express';
-import type { DeviceRequest } from './requireDeviceKey.js';
+import { parseBearerKey, type DeviceRequest } from './requireDeviceKey.js';
+import { sha256Hex } from '../crypto/tokens.js';
 
 const isTest = process.env.NODE_ENV === 'test';
 
@@ -45,7 +46,13 @@ export const deviceKeyLimiter = isTest
       legacyHeaders: false,
       validate: { default: false },
       keyGenerator: (req) => {
-        return (req as DeviceRequest).deviceKeyHash || req.ip || 'anonymous';
+        const existingHash = (req as DeviceRequest).deviceKeyHash;
+        if (existingHash) return existingHash;
+        const rawKey = parseBearerKey(req);
+        if (rawKey && (rawKey.startsWith('cnr_') || rawKey.startsWith('cns_'))) {
+          return sha256Hex(rawKey);
+        }
+        return req.ip || 'anonymous';
       },
       message: { error: 'too_many_requests', detail: 'Device key rate limit exceeded' },
     });

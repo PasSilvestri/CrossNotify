@@ -38,24 +38,24 @@ export function createSetupRouter(
         return;
       }
 
+      // Discard setup token immediately before async hashing to prevent concurrent race
+      setupService.discardSetupToken();
+
       const admin = await authService.createAdmin(username, password);
 
       // Default public_url from request if not set
       if (!settingsService.get('public_url')) {
-        let inferredUrl: string;
-        if (req.headers.origin) {
-          inferredUrl = req.headers.origin;
-        } else {
-          const protocol = req.secure ? 'https' : req.protocol || 'http';
-          inferredUrl = `${protocol}://${req.get('host')}`;
+        const protocol = req.secure ? 'https' : req.protocol || 'http';
+        const candidate = req.headers.origin || `${protocol}://${req.get('host')}`;
+        try {
+          const parsed = new URL(candidate);
+          if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            settingsService.set('public_url', parsed.origin);
+          }
+        } catch {
+          // Ignore malformed candidate URL
         }
-        // Strip trailing slash if present
-        inferredUrl = inferredUrl.replace(/\/+$/, '');
-        settingsService.set('public_url', inferredUrl);
       }
-
-      // Discard setup token permanently
-      setupService.discardSetupToken();
 
       // Create session & set cookie
       const userAgent = req.headers['user-agent'];

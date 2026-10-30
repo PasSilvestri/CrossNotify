@@ -36,14 +36,23 @@ flowchart LR
 ## Quick Start
 
 ### Option A: Docker Compose (recommended)
+For local testing on the same machine or behind a host reverse proxy (port `3000` bound to `127.0.0.1` by default):
 ```bash
 cd server
-docker compose crossnotify up -d
+docker compose up -d
 docker compose logs crossnotify | grep -A2 "setup token"
 ```
-Open `http://<host>:3000`.
+Open `http://127.0.0.1:3000`.
 
-**With automatic HTTPS** (needs a domain pointing to your server, with ports 80 and 443 open):
+**To expose port `3000` directly on your local network (LAN) without HTTPS/Caddy**, set `HOST_BIND_IP=0.0.0.0`:
+```bash
+cd server
+HOST_BIND_IP=0.0.0.0 docker compose up -d
+docker compose logs crossnotify | grep -A2 "setup token"
+```
+Open `http://<lan-ip>:3000`.
+
+**With automatic HTTPS** (needs a domain pointing to your server, with ports 80 and 443 open; Caddy connects to `crossnotify:3000` over the internal Docker network while port `3000` stays bound to `127.0.0.1` on the host):
 ```bash
 DOMAIN=notify.example.com docker compose --profile https up -d
 ```
@@ -71,7 +80,8 @@ Only infrastructure settings live in the environment. Everything else (admin acc
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `PORT` | `3000` | HTTP port |
-| `HOST` | `0.0.0.0` | Bind address |
+| `HOST` | `0.0.0.0` | Bind address inside the process/container |
+| `HOST_BIND_IP` | `127.0.0.1` | Host IP bound by `docker-compose.yml` (`127.0.0.1` for Caddy/reverse-proxy, set to `0.0.0.0` for direct LAN access) |
 | `DATA_DIR` | `./data` (`/app/data` in Docker) | Database and auto-generated master key |
 | `CROSSNOTIFY_SECRET` | *(unset)* | Base64 32-byte master key that encrypts stored secrets. If unset, it's generated into `DATA_DIR/secret.key` |
 | `CROSSNOTIFY_SETUP_TOKEN` | *(unset)* | Pre-set the first-run setup token instead of reading it from the logs |

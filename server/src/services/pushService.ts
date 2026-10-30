@@ -30,7 +30,9 @@ export class FcmPushService implements PushService {
     }
 
     const subscribers = this.subscriberService.getActiveSubscribersForChannel(channel.channel_id);
-    const validSubscribers = subscribers.filter((s) => s.fcm_token && s.fcm_token.trim().length > 0);
+    const validSubscribers = subscribers.filter(
+      (s) => s.fcm_token && s.fcm_token.trim().length > 0 && !s.fcm_token.startsWith('fcm_pending_')
+    );
 
     if (validSubscribers.length === 0) {
       return { sent: 0, failed: 0, removed: 0 };
@@ -132,7 +134,7 @@ export class FcmPushService implements PushService {
               errCode === 'messaging/invalid-registration-token'
             ) {
               console.log(`[pushService] Removing unregistered FCM token: ${token.slice(0, 10)}...`);
-              this.subscriberService.removeToken(token);
+              this.subscriberService.removeToken(token, channel.channel_id);
               removed++;
             } else {
               console.warn(`[pushService] FCM send error for token ${token.slice(0, 10)}...:`, res.error.message);

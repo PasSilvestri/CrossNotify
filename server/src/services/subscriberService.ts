@@ -64,7 +64,8 @@ export class SubscriberService {
 
   initSubscriber(
     apiKeyHash: string,
-    body: SubscriberInitInput
+    body: SubscriberInitInput,
+    expectedChannelId?: string
   ): {
     subscriberId: string;
     channelId: string;
@@ -77,6 +78,10 @@ export class SubscriberService {
 
     if (!subscriber || subscriber.status === 'revoked') {
       throw { status: 401, code: 'invalid_api_key', message: 'Invalid or revoked subscriber key' };
+    }
+
+    if (expectedChannelId && subscriber.channel_id !== expectedChannelId) {
+      throw { status: 403, code: 'channel_mismatch', message: 'Subscriber key does not belong to this channel' };
     }
 
     const channel = this.db.prepare('SELECT name, status FROM channels WHERE channel_id = ?').get(subscriber.channel_id) as
@@ -221,8 +226,12 @@ export class SubscriberService {
     this.db.prepare('DELETE FROM subscribers WHERE channel_id = ? AND subscriber_id = ?').run(channelId, subscriberId);
   }
 
-  removeToken(fcmToken: string): void {
-    this.db.prepare('DELETE FROM subscribers WHERE fcm_token = ?').run(fcmToken);
+  removeToken(fcmToken: string, channelId?: string): void {
+    if (channelId) {
+      this.db.prepare('DELETE FROM subscribers WHERE fcm_token = ? AND channel_id = ?').run(fcmToken, channelId);
+    } else {
+      this.db.prepare('DELETE FROM subscribers WHERE fcm_token = ?').run(fcmToken);
+    }
   }
 
   updateLastSeen(subscriberId: string): void {

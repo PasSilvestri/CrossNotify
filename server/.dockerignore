@@ -1,0 +1,14 @@
+node_modules
+dashboard/node_modules
+dist
+public
+data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.key
+.env
+.env.*
+!.env.example
+.git
+test

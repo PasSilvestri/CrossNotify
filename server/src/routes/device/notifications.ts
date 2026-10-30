@@ -13,7 +13,7 @@ import type { ChannelService } from '../../services/channelService.js';
 import type { SubscriberService } from '../../services/subscriberService.js';
 
 const PublishNotificationSchema = z.object({
-  notificationId: z.string().min(1),
+  notificationId: z.string().min(1).max(128),
   iv: z.string().refine((val) => {
     try {
       const buf = Buffer.from(val, 'base64url');

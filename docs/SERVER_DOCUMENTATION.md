@@ -139,7 +139,8 @@ Application settings (such as the public server URL and notification TTLs) are s
 | Variable | Default | Purpose |
 | :--- | :--- | :--- |
 | `PORT` | `3000` | HTTP listening port |
-| `HOST` | `0.0.0.0` | Network interface binding address |
+| `HOST` | `0.0.0.0` | Network interface binding address inside the server process/container |
+| `HOST_BIND_IP` | `127.0.0.1` | Host interface IP bound by `docker-compose.yml` (`127.0.0.1` by default; set to `0.0.0.0` to expose port `3000` on a LAN) |
 | `DATA_DIR` | `./data` | Directory hosting `crossnotify.sqlite` and the auto-generated `secret.key` |
 | `CROSSNOTIFY_SECRET` | *(unset)* | Base64-encoded 32-byte master key for at-rest secret encryption. If unset, the server auto-generates `DATA_DIR/secret.key` (with file permissions `0600`) on first startup and reuses it |
 | `CROSSNOTIFY_SETUP_TOKEN` | *(unset)* | Optional pre-defined setup token for non-interactive provisioning. If unset, a secure random token is generated and printed in server logs |

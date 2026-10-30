@@ -50,16 +50,24 @@ export class AuthService {
   async createAdmin(username: string, password: string): Promise<AdminUser> {
     const passwordHash = await this.hashPassword(password);
     const now = Date.now();
-    const result = this.db
-      .prepare('INSERT INTO admin_users (username, password_hash, created_at) VALUES (?, ?, ?)')
-      .run(username, passwordHash, now);
 
-    return {
-      id: Number(result.lastInsertRowid),
-      username,
-      created_at: now,
-      last_login_at: null,
-    };
+    const insertAdminTx = this.db.transaction(() => {
+      if (this.hasAdminUser()) {
+        throw { status: 409, code: 'invalid_state', message: 'An admin user already exists' };
+      }
+      const result = this.db
+        .prepare('INSERT INTO admin_users (username, password_hash, created_at) VALUES (?, ?, ?)')
+        .run(username, passwordHash, now);
+
+      return {
+        id: Number(result.lastInsertRowid),
+        username,
+        created_at: now,
+        last_login_at: null,
+      };
+    });
+
+    return insertAdminTx();
   }
 
   async authenticate(username: string, password: string): Promise<AdminUser | null> {

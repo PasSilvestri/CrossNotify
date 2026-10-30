@@ -5,6 +5,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 @Serializable
 data class QrServerInfo(
@@ -138,16 +139,29 @@ object QrPayloadParser {
     }
 
     private fun validateServerUrl(url: String) {
-        val normalized = normalizeServerUrl(url).lowercase()
-        require(normalized.startsWith("https://") || normalized.startsWith("http://")) {
+        val normalized = normalizeServerUrl(url)
+        val lower = normalized.lowercase()
+        require(lower.startsWith("https://") || lower.startsWith("http://")) {
             "Server URL must start with https:// or http://"
+        }
+        val parsed = normalized.toHttpUrlOrNull()
+            ?: throw IllegalArgumentException("Server URL is not a valid HTTP/HTTPS URL")
+        require(parsed.username.isEmpty() && parsed.password.isEmpty()) {
+            "Server URL must not contain embedded credentials"
+        }
+        require(parsed.query == null && parsed.fragment == null) {
+            "Server URL must not contain query parameters or fragments"
         }
     }
 
     private fun validateFirebase(fb: QrFirebaseInfo) {
-        require(fb.projectId.isNotBlank()) { "Firebase projectId is missing" }
+        require(fb.projectId.isNotBlank() && fb.projectId.matches(Regex("^[a-zA-Z0-9_-]{1,64}$"))) {
+            "Firebase projectId is missing or invalid"
+        }
         require(fb.appId.isNotBlank()) { "Firebase appId is missing" }
         require(fb.apiKey.isNotBlank()) { "Firebase apiKey is missing" }
-        require(fb.senderId.isNotBlank()) { "Firebase senderId is missing" }
+        require(fb.senderId.isNotBlank() && fb.senderId.matches(Regex("^[0-9]{1,32}$"))) {
+            "Firebase senderId is missing or invalid"
+        }
     }
 }

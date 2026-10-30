@@ -83,7 +83,7 @@
 
         <activity
             android:name=".ui.DecryptActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/decrypt_activity_title"
             android:launchMode="singleTop"
             android:theme="@style/Theme.CrossNotify">

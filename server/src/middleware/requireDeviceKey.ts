@@ -117,6 +117,8 @@ export function requireAnyDeviceKey(channelService: ChannelService, subscriberSe
         return;
       }
       req.channel = channel;
+      req.deviceKeyHash = hash;
+      req.rawApiKey = rawKey;
       return next();
     }
 
@@ -138,6 +140,8 @@ export function requireAnyDeviceKey(channelService: ChannelService, subscriberSe
       }
       req.subscriber = subscriber;
       req.channel = channel;
+      req.deviceKeyHash = hash;
+      req.rawApiKey = rawKey;
       return next();
     }
 

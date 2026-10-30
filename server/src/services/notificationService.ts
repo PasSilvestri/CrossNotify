@@ -36,6 +36,9 @@ export class NotificationService {
     `).get(input.notificationId) as NotificationRow | undefined;
 
     if (existing) {
+      if (existing.channel_id !== channelId) {
+        throw { status: 409, code: 'notification_id_conflict', message: 'Notification ID already exists' };
+      }
       return { created: false, notification: existing };
     }
 
@@ -83,12 +86,13 @@ export class NotificationService {
     hasMore: boolean;
   } {
     const fetchLimit = Math.min(Math.max(1, limit), 100);
+    const now = Date.now();
     const rows = this.db.prepare(`
       SELECT * FROM notifications
-      WHERE channel_id = ? AND created_at > ?
+      WHERE channel_id = ? AND created_at > ? AND expires_at > ?
       ORDER BY created_at ASC
       LIMIT ?
-    `).all(channelId, since, fetchLimit + 1) as NotificationRow[];
+    `).all(channelId, since, now, fetchLimit + 1) as NotificationRow[];
 
     const hasMore = rows.length > fetchLimit;
     const items = rows.slice(0, fetchLimit);
@@ -107,10 +111,11 @@ export class NotificationService {
   }
 
   getNotification(channelId: string, notificationId: string): NotificationRow | null {
+    const now = Date.now();
     const row = this.db.prepare(`
       SELECT * FROM notifications
-      WHERE channel_id = ? AND notification_id = ?
-    `).get(channelId, notificationId) as NotificationRow | undefined;
+      WHERE channel_id = ? AND notification_id = ? AND expires_at > ?
+    `).get(channelId, notificationId, now) as NotificationRow | undefined;
 
     return row || null;
   }

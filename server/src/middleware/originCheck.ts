@@ -18,7 +18,14 @@ export function originCheck(req: Request, res: Response, next: NextFunction): vo
     }
   }
 
-  // 2. Origin check if header is present
+  // 2. Reject cross-site browser requests reported via Fetch Metadata
+  const secFetchSite = req.headers['sec-fetch-site'];
+  if (secFetchSite && secFetchSite !== 'same-origin' && secFetchSite !== 'none') {
+    res.status(403).json({ error: 'invalid_origin', message: 'Cross-site requests are not permitted' });
+    return;
+  }
+
+  // 3. Origin check if header is present
   const origin = req.headers.origin;
   if (origin) {
     try {
@@ -27,11 +34,11 @@ export function originCheck(req: Request, res: Response, next: NextFunction): vo
       const originHostname = originUrl.hostname.toLowerCase();
       const requestHost = (req.get('host') || '').toLowerCase();
       const requestHostname = (req.hostname || '').toLowerCase();
+      const isLoopback = requestHostname === '127.0.0.1' || requestHostname === 'localhost';
 
       if (
         originHost !== requestHost &&
-        originHostname !== requestHostname &&
-        originHostname !== requestHost
+        !(isLoopback && originHostname === requestHostname)
       ) {
         res.status(403).json({ error: 'invalid_origin', message: 'Origin header does not match Host' });
         return;

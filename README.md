@@ -183,13 +183,14 @@ Requires a domain or subdomain (e.g. `notify.yourdomain.com`) pointing to your s
    docker compose logs crossnotify | grep -A2 "setup token"
    ```
 
-#### Option B: Docker Compose (HTTP / Behind Existing Reverse Proxy)
+#### Option B: Docker Compose (HTTP / LAN or Behind Existing Reverse Proxy)
 
-If you already use Nginx, Traefik, or Cloudflare Tunnel:
+By default, `docker-compose.yml` binds host port `3000` to `127.0.0.1` (`127.0.0.1:3000:3000`) for use with a host reverse proxy (Nginx, Traefik, or Cloudflare Tunnel). To expose port `3000` directly on all interfaces (e.g. for local LAN access at `http://<server-lan-ip>:3000`), set `HOST_BIND_IP=0.0.0.0`:
 
 ```bash
 cd server
 export CROSSNOTIFY_SECRET=$(openssl rand -base64 32)
+export HOST_BIND_IP=0.0.0.0   # Omit to keep port 3000 bound to 127.0.0.1 only
 docker compose up -d
 docker compose logs crossnotify | grep -A2 "setup token"
 ```
@@ -300,7 +301,6 @@ Extract the archive into your data volume or directory, set `CROSSNOTIFY_SECRET`
 - 📖 **[Firebase Setup Guide](docs/FIREBASE_SETUP_GUIDE.md)**: Complete walkthrough for Google Firebase console configuration.
 - 📖 **[System Architecture](docs/ARCHITECTURE.md)**: Comprehensive protocol specification and crypto flows.
 - 📖 **[Server Documentation](docs/SERVER_DOCUMENTATION.md)**: Database schemas, REST endpoint definitions, and dashboard architecture.
-- 📋 **[TODO & Roadmap](docs/TODO.md)**: Current development status, completed milestones, and upcoming features.
 
 ---
 

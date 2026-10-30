@@ -60,7 +60,11 @@ export function createDeviceSubscribersRouter(
         }
 
         const keyHash = sha256Hex(rawKey);
-        const result = subscriberService.initSubscriber(keyHash, req.body);
+        const result = subscriberService.initSubscriber(
+          keyHash,
+          req.body,
+          String(req.params.channelId)
+        );
         res.json(result);
       } catch (err) {
         next(err);

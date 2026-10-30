@@ -6,7 +6,9 @@ import type { SettingsService } from './settingsService.js';
 
 export const ServiceAccountSchema = z.object({
   type: z.literal('service_account'),
-  project_id: z.string().min(1),
+  project_id: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/, {
+    message: 'project_id must contain only lowercase letters, digits, and hyphens',
+  }),
   private_key_id: z.string().optional(),
   private_key: z.string().refine((k) => k.includes('-----BEGIN PRIVATE KEY-----'), {
     message: 'Must contain -----BEGIN PRIVATE KEY-----',
@@ -15,11 +17,11 @@ export const ServiceAccountSchema = z.object({
     message: 'Must end with .iam.gserviceaccount.com',
   }),
   client_id: z.string().optional(),
-  auth_uri: z.string().optional(),
-  token_uri: z.string().optional(),
-  auth_provider_x509_cert_url: z.string().optional(),
-  client_x509_cert_url: z.string().optional(),
-}).passthrough();
+  auth_uri: z.literal('https://accounts.google.com/o/oauth2/auth').optional(),
+  token_uri: z.literal('https://oauth2.googleapis.com/token').optional(),
+  auth_provider_x509_cert_url: z.literal('https://www.googleapis.com/oauth2/v1/certs').optional(),
+  client_x509_cert_url: z.string().startsWith('https://www.googleapis.com/').optional(),
+});
 
 export type ServiceAccount = z.infer<typeof ServiceAccountSchema>;
 

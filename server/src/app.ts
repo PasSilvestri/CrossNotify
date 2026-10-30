@@ -111,7 +111,6 @@ export async function createApp(deps: AppDependencies = {}): Promise<AppContext>
     })
   );
 
-  app.use(cors());
   app.use(cookieParser());
   app.use(express.json({ limit: '64kb' }));
   app.use(express.urlencoded({ extended: false }));
@@ -150,6 +149,7 @@ export async function createApp(deps: AppDependencies = {}): Promise<AppContext>
 
   // Device API routes: /api/v1/* (only in READY)
   const deviceApi = express.Router();
+  deviceApi.use(cors());
   deviceApi.use(requireState(setupService, 'READY'));
   deviceApi.use(deviceIpLimiter);
   deviceApi.use(deviceKeyLimiter);

@@ -206,7 +206,11 @@ class CrossNotifyRepository @Inject constructor(
         }
 
         val apiKeyEnc = cryptoManager.wrapString(payload.apiKey)
-        val e2eKeyEnc = cryptoManager.wrapBytes(e2eKeyBytes)
+        val e2eKeyEnc = try {
+            cryptoManager.wrapBytes(e2eKeyBytes)
+        } finally {
+            e2eKeyBytes.fill(0)
+        }
 
         val channelEntity = RelayChannelEntity(
             channelId = initResponse.channelId,
@@ -237,7 +241,11 @@ class CrossNotifyRepository @Inject constructor(
 
         val relayApiKey = cryptoManager.unwrapString(channel.apiKeyEnc)
         val e2eKeyBytes = cryptoManager.unwrapBytes(channel.e2eKeyEnc)
-        val e2eKeyBase64Url = E2ECryptoEngine.encodeBase64Url(e2eKeyBytes)
+        val e2eKeyBase64Url = try {
+            E2ECryptoEngine.encodeBase64Url(e2eKeyBytes)
+        } finally {
+            e2eKeyBytes.fill(0)
+        }
 
         val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
         val mintResponse = apiClient.unwrapResponse(
@@ -388,11 +396,15 @@ class CrossNotifyRepository @Inject constructor(
     ) {
         runCatching {
             val e2eKey = cryptoManager.unwrapBytes(channel.e2eKeyEnc)
-            val blob = e2eCryptoEngine.encrypt(
-                e2eKey = e2eKey,
-                channelId = channel.channelId,
-                payload = plaintext
-            )
+            val blob = try {
+                e2eCryptoEngine.encrypt(
+                    e2eKey = e2eKey,
+                    channelId = channel.channelId,
+                    payload = plaintext
+                )
+            } finally {
+                e2eKey.fill(0)
+            }
             val outboxItem = OutboxEntity(
                 notificationId = plaintext.id,
                 channelId = channel.channelId,
@@ -552,7 +564,11 @@ class CrossNotifyRepository @Inject constructor(
 
         // 4. Wrap secrets with Android Keystore `cn_master`
         val apiKeyEnc = cryptoManager.wrapString(payload.apiKey)
-        val e2eKeyEnc = cryptoManager.wrapBytes(e2eKeyBytes)
+        val e2eKeyEnc = try {
+            cryptoManager.wrapBytes(e2eKeyBytes)
+        } finally {
+            e2eKeyBytes.fill(0)
+        }
 
         val subscription = SubscriptionEntity(
             channelId = initResponse.channelId,
@@ -642,6 +658,47 @@ class CrossNotifyRepository @Inject constructor(
     }
 
     /**
+     * Verifies that an incoming FCM push's `from` senderId matches the configured
+     * Firebase senderId of the server bound to [channelId].
+     */
+    suspend fun verifyPushSenderForChannel(channelId: String, senderId: String?): Boolean {
+        val sub = subscriptionDao.getById(channelId) ?: return false
+        val server = serverDao.getById(sub.serverId) ?: return false
+        if (!senderId.isNullOrBlank() && server.fbSenderId.isNotBlank()) {
+            return server.fbSenderId == senderId
+        }
+        return true
+    }
+
+    /**
+     * Handles an untrusted `channel_revoked` FCM push by verifying with the server
+     * that the subscription/channel is no longer active before wiping local E2E keys.
+     */
+    suspend fun handlePushSubscriptionRevoked(channelId: String, targetSubscriberId: String? = null) {
+        val sub = subscriptionDao.getById(channelId) ?: return
+        if (sub.status == "revoked") return
+        if (targetSubscriberId != null && sub.subscriberId != targetSubscriberId) {
+            Log.d(TAG, "Ignoring revocation for channel $channelId: target subscriberId $targetSubscriberId does not match device subscriberId ${sub.subscriberId}")
+            return
+        }
+        val server = serverDao.getById(sub.serverId)
+        if (server != null && sub.apiKeyEnc.isNotBlank()) {
+            val stillActiveOnServer = runCatching {
+                val subApiKey = cryptoManager.unwrapString(sub.apiKeyEnc)
+                val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+                val response = service.getChannelInfo(apiClient.bearerHeader(subApiKey), channelId)
+                response.isSuccessful && response.body()?.status != "revoked"
+            }.getOrDefault(false)
+
+            if (stillActiveOnServer) {
+                Log.w(TAG, "Ignored unverified channel_revoked push for active channel $channelId")
+                return
+            }
+        }
+        handleSubscriptionRevoked(channelId, targetSubscriberId)
+    }
+
+    /**
      * Handles revocation events when the server or relay closes a channel or revokes this subscriber.
      * Marks the local record as revoked, purges stored credentials, and alerts the user.
      * If [targetSubscriberId] is provided, only revokes if this device's subscriber ID matches.
@@ -683,17 +740,21 @@ class CrossNotifyRepository @Inject constructor(
         if (sub.status != "active" || sub.e2eKeyEnc.isBlank()) return null
 
         val e2eKey = runCatching { cryptoManager.unwrapBytes(sub.e2eKeyEnc) }.getOrNull() ?: return null
-        val plaintext = runCatching {
-            e2eCryptoEngine.decrypt(
-                e2eKey = e2eKey,
-                channelId = channelId,
-                notificationId = notificationId,
-                ivBase64Url = iv,
-                ciphertextBase64Url = ciphertext
-            )
-        }.onFailure { err ->
-            Log.e(TAG, "Failed to decrypt notification $notificationId on channel $channelId", err)
-        }.getOrNull() ?: return null
+        val plaintext = try {
+            runCatching {
+                e2eCryptoEngine.decrypt(
+                    e2eKey = e2eKey,
+                    channelId = channelId,
+                    notificationId = notificationId,
+                    ivBase64Url = iv,
+                    ciphertextBase64Url = ciphertext
+                )
+            }.onFailure { err ->
+                Log.e(TAG, "Failed to decrypt notification $notificationId on channel $channelId", err)
+            }.getOrNull()
+        } finally {
+            e2eKey.fill(0)
+        } ?: return null
 
         val originId = plaintext.origin.id.ifBlank { notificationId }
         val alreadyInInbox = inboxDao.getById(notificationId) != null
@@ -770,13 +831,17 @@ class CrossNotifyRepository @Inject constructor(
         val existingInbox = inboxDao.getById(notificationId)
         if (existingInbox != null && sub.e2eKeyEnc.isNotBlank()) {
             val e2eKey = cryptoManager.unwrapBytes(sub.e2eKeyEnc)
-            val plaintext = e2eCryptoEngine.decrypt(
-                e2eKey = e2eKey,
-                channelId = channelId,
-                notificationId = notificationId,
-                ivBase64Url = existingInbox.iv,
-                ciphertextBase64Url = existingInbox.ciphertext
-            )
+            val plaintext = try {
+                e2eCryptoEngine.decrypt(
+                    e2eKey = e2eKey,
+                    channelId = channelId,
+                    notificationId = notificationId,
+                    ivBase64Url = existingInbox.iv,
+                    ciphertextBase64Url = existingInbox.ciphertext
+                )
+            } finally {
+                e2eKey.fill(0)
+            }
             if (markAsRead) {
                 inboxDao.markRead(notificationId, System.currentTimeMillis())
             }
@@ -831,13 +896,17 @@ class CrossNotifyRepository @Inject constructor(
         if (sub.e2eKeyEnc.isBlank()) return null
         return runCatching {
             val e2eKey = cryptoManager.unwrapBytes(sub.e2eKeyEnc)
-            e2eCryptoEngine.decrypt(
-                e2eKey = e2eKey,
-                channelId = entity.channelId,
-                notificationId = entity.notificationId,
-                ivBase64Url = entity.iv,
-                ciphertextBase64Url = entity.ciphertext
-            )
+            try {
+                e2eCryptoEngine.decrypt(
+                    e2eKey = e2eKey,
+                    channelId = entity.channelId,
+                    notificationId = entity.notificationId,
+                    ivBase64Url = entity.iv,
+                    ciphertextBase64Url = entity.ciphertext
+                )
+            } finally {
+                e2eKey.fill(0)
+            }
         }.getOrNull()
     }
 

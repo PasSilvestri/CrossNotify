@@ -2,6 +2,8 @@ package com.crossnotify.app.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.crossnotify.app.data.db.CrossNotifyDatabase
 import com.crossnotify.app.data.db.InboxDao
 import com.crossnotify.app.data.db.OutboxDao
@@ -27,7 +29,15 @@ object AppModule {
             context,
             CrossNotifyDatabase::class.java,
             "crossnotify.db"
-        ).fallbackToDestructiveMigration().build()
+        )
+            .addCallback(object : RoomDatabase.Callback() {
+                override fun onOpen(db: SupportSQLiteDatabase) {
+                    super.onOpen(db)
+                    db.query("PRAGMA secure_delete = ON").close()
+                }
+            })
+            .fallbackToDestructiveMigration()
+            .build()
     }
 
     @Provides

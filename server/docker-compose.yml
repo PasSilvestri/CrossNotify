@@ -4,7 +4,7 @@ services:
     container_name: crossnotify
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${HOST_BIND_IP:-127.0.0.1}:3000:3000"
     environment:
       - PORT=3000
       - HOST=0.0.0.0
