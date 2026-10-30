@@ -104,9 +104,12 @@ CrossNotify/
 │   ├── docker-compose.yml           # Multi-stage Compose deployment (with Caddy HTTPS profile)
 │   ├── Dockerfile                   # Optimized multi-stage production Dockerfile
 │   └── README.md                    # Server configuration and environment variable reference
-├── ARCHITECTURE.md                  # System architecture and protocol specification
-├── FIREBASE_SETUP_GUIDE.md          # Visual guide to generating Firebase credentials
-├── SERVER_DOCUMENTATION.md          # Backend API, database schema, and dashboard documentation
+├── docs/                            # Documentation and setup guides
+│   ├── ARCHITECTURE.md              # System architecture and protocol specification
+│   ├── FIREBASE_SETUP_GUIDE.md      # Visual guide to generating Firebase credentials
+│   ├── SERVER_DOCUMENTATION.md      # Backend API, database schema, and dashboard documentation
+│   ├── SIGNING_APK.md               # Keystore creation and release APK signing guide
+│   └── TODO.md                      # Development roadmap and task tracking
 └── README.md                        # This document
 ```
 
@@ -127,7 +130,7 @@ Deploying CrossNotify involves five straightforward steps:
 
 CrossNotify uses FCM for push delivery. You run your own Firebase project (on Google's free **Spark plan** — no credit card needed).
 
-Follow the detailed steps in [FIREBASE_SETUP_GUIDE.md](FIREBASE_SETUP_GUIDE.md) to obtain:
+Follow the detailed steps in [FIREBASE_SETUP_GUIDE.md](docs/FIREBASE_SETUP_GUIDE.md) to obtain:
 
 1. **`google-services.json` (Client Configuration)**:
    - In the [Firebase Console](https://console.firebase.google.com/), create a project (e.g. `CrossNotify`).
@@ -159,6 +162,13 @@ Requires a domain or subdomain (e.g. `notify.yourdomain.com`) pointing to your s
    ```bash
    export CROSSNOTIFY_SECRET=$(openssl rand -base64 32)
    export DOMAIN=notify.yourdomain.com
+   ```
+   or
+   ```bash
+   cat <<EOF > .env
+   DOMAIN=notify.yourdomain.com
+   CROSSNOTIFY_SECRET=$(openssl rand -hex 32)
+   EOF
    ```
    > [!TIP]
    > Save your `CROSSNOTIFY_SECRET` in a secure password manager. It encrypts your stored Firebase credentials in SQLite.
@@ -285,10 +295,12 @@ Extract the archive into your data volume or directory, set `CROSSNOTIFY_SECRET`
 ## Documentation Links
 
 - 📖 **[Android Client Documentation](android/README.md)**: Build instructions, signing configs, background optimization tips, and Android architecture.
+- 🔑 **[APK Signing & Release Guide](docs/SIGNING_APK.md)**: Step-by-step walkthrough for generating release keystores and compiling signed production APKs.
 - 📖 **[Server Documentation](server/README.md)**: Server environment variables, reverse proxy configuration, and admin API overview.
-- 📖 **[Firebase Setup Guide](FIREBASE_SETUP_GUIDE.md)**: Complete walkthrough for Google Firebase console configuration.
-- 📖 **[System Architecture](ARCHITECTURE.md)**: Comprehensive protocol specification and crypto flows.
-- 📖 **[Server Documentation](SERVER_DOCUMENTATION.md)**: Database schemas, REST endpoint definitions, and dashboard architecture.
+- 📖 **[Firebase Setup Guide](docs/FIREBASE_SETUP_GUIDE.md)**: Complete walkthrough for Google Firebase console configuration.
+- 📖 **[System Architecture](docs/ARCHITECTURE.md)**: Comprehensive protocol specification and crypto flows.
+- 📖 **[Server Documentation](docs/SERVER_DOCUMENTATION.md)**: Database schemas, REST endpoint definitions, and dashboard architecture.
+- 📋 **[TODO & Roadmap](docs/TODO.md)**: Current development status, completed milestones, and upcoming features.
 
 ---
 

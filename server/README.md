@@ -24,7 +24,7 @@ flowchart LR
 
 1. **Start the server** (see Quick Start). On first boot, the logs print a **setup token**.
 2. **Open the dashboard** at your server's URL. Enter the setup token and choose an admin username and password.
-3. **Firebase setup**: follow the in-dashboard guide (or [FIREBASE_SETUP_GUIDE.md](../FIREBASE_SETUP_GUIDE.md)) and upload both JSON files.
+3. **Firebase setup**: follow the in-dashboard guide (or [FIREBASE_SETUP_GUIDE.md](../docs/FIREBASE_SETUP_GUIDE.md)) and upload both JSON files.
 4. **Add a relay phone**: the dashboard shows a QR code. Scan it with the CrossNotify app on the phone whose notifications you want to relay (*Relay → Add relay channel*). The channel appears in the dashboard as soon as the phone registers.
 5. **Add subscribers**: on the **relay phone**, open the channel and tap *Share with subscriber*. Other phones scan that QR (*Subscriptions → Add subscription*).
 
@@ -38,7 +38,7 @@ flowchart LR
 ### Option A: Docker Compose (recommended)
 ```bash
 cd server
-docker compose up -d
+docker compose crossnotify up -d
 docker compose logs crossnotify | grep -A2 "setup token"
 ```
 Open `http://<host>:3000`.
@@ -142,12 +142,23 @@ CrossNotify uses SQLite, so it needs a **persistent disk**. Any VM or container 
 > [!WARNING]
 > **Serverless platforms without persistent disks** (e.g. plain Google Cloud Run, AWS Lambda) aren't supported. The database would be wiped on every restart or scale event.
 
-### Example: Oracle Cloud Always Free VM
+### Example: Oracle Cloud Always Free VM (Ubuntu image)
 ```bash
-sudo apt-get update && sudo apt-get install -y docker.io docker-compose-plugin git
+sudo apt update && sudo apt install -y docker.io docker-compose-plugin git
+
+sudo iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
+sudo netfilter-persistent save
+
 git clone https://github.com/PasSilvestri/CrossNotify.git && cd CrossNotify/server
+
 export DOMAIN=notify.example.com
 export CROSSNOTIFY_SECRET=$(openssl rand -base64 32)   # store this somewhere safe!
+cat <<EOF > .env
+DOMAIN=${DOMAIN}
+CROSSNOTIFY_SECRET=${CROSSNOTIFY_SECRET}
+EOF
+
 sudo -E docker compose --profile https up -d
 sudo docker compose logs crossnotify | grep -A2 "setup token"
 ```
@@ -159,7 +170,7 @@ Back up the `crossnotify_data` volume (the SQLite database) and, separately, you
 
 ## API Overview
 
-Full request and response definitions are in [SERVER_DOCUMENTATION.md](../SERVER_DOCUMENTATION.md) §10 and §12.
+Full request and response definitions are in [SERVER_DOCUMENTATION.md](../docs/SERVER_DOCUMENTATION.md) §10 and §12.
 
 **Public**
 - `GET /health` → `{ "status": "ok", "state": "READY" }`

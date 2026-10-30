@@ -115,20 +115,20 @@ android/app/build/outputs/apk/release/app-release-unsigned.apk
 
 #### Signing the Release APK
 
-To distribute or install the release APK on physical devices, sign it using `apksigner`:
+The Gradle build automatically produces a signed production APK (`app-release.apk`) if `android/keystore.properties` is configured.
 
-1. **Create a keystore** (if you don't already have one):
+For a full step-by-step walkthrough on generating the keystore, configuring properties, signing, and installing the APK, see:
+👉 **[APK Signing & Release Guide (SIGNING_APK.md)](../docs/SIGNING_APK.md)**
+
+Quick summary:
+1. Copy `keystore.properties.example` to `keystore.properties`.
+2. Generate your keystore with `keytool`:
    ```bash
-   keytool -genkeypair -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias crossnotify
+   keytool -genkeypair -v -keystore app/release.jks -alias crossnotify -keyalg RSA -keysize 2048 -validity 10000 -storetype PKCS12
    ```
-
-2. **Align and sign the APK**:
-   ```bash
-   zipalign -v -p 4 app-release-unsigned.apk app-release-aligned.apk
-   apksigner sign --ks release.jks --ks-key-alias crossnotify --out CrossNotify-release.apk app-release-aligned.apk
-   ```
-
-Alternatively, configure `signingConfigs` in `app/build.gradle.kts` using environment variables or a secure keystore file.
+3. Enter your keystore path and passwords in `keystore.properties`.
+4. Run `./gradlew assembleRelease` (or `.\gradlew.bat assembleRelease` on Windows).
+5. The signed APK is created at `android/app/build/outputs/apk/release/app-release.apk`.
 
 ### 5. Run Unit Tests
 

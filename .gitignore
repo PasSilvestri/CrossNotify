@@ -41,6 +41,8 @@ app/build/
 *.keystore
 *.p12
 *.pfx
+keystore.properties
+key.properties
 local.properties
 .idea/
 *.iml
@@ -49,4 +51,4 @@ local.properties
 .DS_Store
 Thumbs.db
 .vscode/
-docs/
+docs/TODO.md

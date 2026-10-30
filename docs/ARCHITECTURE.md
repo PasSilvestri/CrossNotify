@@ -424,9 +424,12 @@ seen_origins(originId PK, seenAt)          -- deduplication for daisy chains, pr
 
 ```
 CrossNotify/
-├── ARCHITECTURE.md                    # System architecture documentation (this document)
-├── SERVER_DOCUMENTATION.md            # Detailed server, API, and database documentation
-├── FIREBASE_SETUP_GUIDE.md            # Step-by-step Firebase project configuration guide
+├── docs/                              # System documentation and guides
+│   ├── ARCHITECTURE.md                # System architecture documentation (this document)
+│   ├── FIREBASE_SETUP_GUIDE.md        # Step-by-step Firebase project configuration guide
+│   ├── SERVER_DOCUMENTATION.md        # Detailed server, API, and database documentation
+│   ├── SIGNING_APK.md                 # Keystore creation and release APK signing guide
+│   └── TODO.md                        # Development roadmap and task tracking
 ├── README.md                          # Project overview and deployment guide
 ├── server/                            # Self-hosted backend server & web dashboard
 │   ├── src/                           # Express 5 API, SQLite migrations, crypto, and services

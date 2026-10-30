@@ -30,7 +30,7 @@ services:
     environment:
       - DOMAIN=${DOMAIN:?DOMAIN environment variable is required when using the https profile}
     command: >
-      caddy reverse-proxy --from {$DOMAIN} --to crossnotify:3000
+      caddy reverse-proxy --from ${DOMAIN} --to crossnotify:3000
     depends_on:
       - crossnotify
     volumes:
