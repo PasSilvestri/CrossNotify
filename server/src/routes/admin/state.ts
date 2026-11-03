@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { SetupService } from '../../services/setupService.js';
 import type { SettingsService } from '../../services/settingsService.js';
+import { SERVER_VERSION } from '../../constants.js';
 
 export function createStateRouter(setupService: SetupService, settingsService: SettingsService): Router {
   const router = Router();
@@ -11,7 +12,7 @@ export function createStateRouter(setupService: SetupService, settingsService: S
     res.json({
       state,
       serverName: settings.serverName,
-      version: '1.0.0',
+      version: SERVER_VERSION,
     });
   });
 

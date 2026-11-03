@@ -14,6 +14,7 @@ const setupStore = useSetupStore();
 const publicUrl = ref('');
 const serverName = ref('');
 const notificationTtlHours = ref(48);
+const serverVersion = ref('');
 const isSavingSettings = ref(false);
 const settingsSuccess = ref(false);
 const settingsError = ref<string | null>(null);
@@ -32,13 +33,22 @@ async function loadSettings() {
       publicUrl: string | null;
       serverName: string;
       notificationTtlHours: number;
+      version?: string;
     }>('/admin/api/settings');
 
     publicUrl.value = data.publicUrl || '';
     serverName.value = data.serverName;
     notificationTtlHours.value = data.notificationTtlHours;
+    if (data.version) {
+      serverVersion.value = data.version;
+    } else if (setupStore.version) {
+      serverVersion.value = setupStore.version;
+    }
   } catch (err) {
     console.error('Failed to load settings:', err);
+    if (setupStore.version) {
+      serverVersion.value = setupStore.version;
+    }
   }
 }
 
@@ -114,8 +124,16 @@ onMounted(loadSettings);
   <div class="settings-view">
     <div class="view-header">
       <router-link to="/" class="back-link">← Back to Channels</router-link>
-      <h1 class="page-title">Settings</h1>
-      <p class="page-subtitle">Configure server properties and admin credentials</p>
+      <div class="header-row">
+        <div>
+          <h1 class="page-title">Settings</h1>
+          <p class="page-subtitle">Configure server properties and admin credentials</p>
+        </div>
+        <div v-if="serverVersion" class="server-version-badge">
+          <span class="version-dot"></span>
+          <span class="version-text">Server v{{ serverVersion }}</span>
+        </div>
+      </div>
     </div>
 
     <!-- Server Properties -->
@@ -274,6 +292,34 @@ onMounted(loadSettings);
 .page-subtitle {
   font-size: 0.9375rem;
   color: var(--text-muted);
+}
+
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.server-version-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--surface-secondary, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  padding: 0.375rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary, #94a3b8);
+  white-space: nowrap;
+}
+
+.version-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--success, #10b981);
 }
 
 .card-title {

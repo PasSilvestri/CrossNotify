@@ -5,6 +5,8 @@ import { requireAdmin } from '../../middleware/requireAdmin.js';
 import type { SettingsService } from '../../services/settingsService.js';
 import type { AuthService } from '../../services/authService.js';
 
+import { SERVER_VERSION } from '../../constants.js';
+
 const SettingsUpdateSchema = z.object({
   publicUrl: z
     .string()
@@ -23,12 +25,18 @@ export function createSettingsRouter(settingsService: SettingsService, authServi
   const auth = requireAdmin(authService);
 
   router.get('/', auth, (req, res) => {
-    res.json(settingsService.getAll());
+    res.json({
+      ...settingsService.getAll(),
+      version: SERVER_VERSION,
+    });
   });
 
   router.put('/', auth, validateBody(SettingsUpdateSchema), (req, res) => {
     settingsService.setAll(req.body);
-    res.json(settingsService.getAll());
+    res.json({
+      ...settingsService.getAll(),
+      version: SERVER_VERSION,
+    });
   });
 
   return router;
