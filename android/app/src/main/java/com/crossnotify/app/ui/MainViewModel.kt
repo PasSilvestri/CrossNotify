@@ -374,8 +374,19 @@ class MainViewModel @Inject constructor(
     }
 
     fun updateDeviceName(name: String) {
-        appPreferences.setDeviceName(name)
-        _statusMessage.value = "Device display name updated."
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        appPreferences.setDeviceName(trimmed)
+        viewModelScope.launch {
+            _isBusy.value = true
+            val result = repository.dispatchDeviceNameUpdate(trimmed)
+            _isBusy.value = false
+            _statusMessage.value = if (result.isSuccess) {
+                "Device display name updated and dispatched."
+            } else {
+                "Device name saved locally; dispatch will retry on next connection."
+            }
+        }
     }
 
     fun updateAllowInsecureHttpByDefault(allow: Boolean) {

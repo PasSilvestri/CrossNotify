@@ -9,7 +9,8 @@ import type { ServiceAccount, GoogleServices } from '../../src/services/firebase
 
 export class MockPushService implements PushService {
   public dispatched: Array<{ channel: ChannelRow; notification: NotificationRow }> = [];
-  public revokedCalls: Array<{ channel: ChannelRow; tokens: string[] }> = [];
+  public revokedCalls: Array<{ channel: ChannelRow; tokens: string[]; subscriberId?: string }> = [];
+  public relayNameUpdatedCalls: Array<{ channel: ChannelRow; tokens: string[]; newRelayDeviceName: string }> = [];
 
   async dispatch(channel: ChannelRow, n: NotificationRow): Promise<PushResult> {
     this.dispatched.push({ channel, notification: n });
@@ -20,9 +21,14 @@ export class MockPushService implements PushService {
     this.revokedCalls.push({ channel, tokens, subscriberId });
   }
 
+  async sendRelayNameUpdated(channel: ChannelRow, tokens: string[], newRelayDeviceName: string): Promise<void> {
+    this.relayNameUpdatedCalls.push({ channel, tokens, newRelayDeviceName });
+  }
+
   reset() {
     this.dispatched = [];
     this.revokedCalls = [];
+    this.relayNameUpdatedCalls = [];
   }
 }
 

@@ -14,6 +14,7 @@ export interface PushResult {
 export interface PushService {
   dispatch(channel: ChannelRow, n: NotificationRow): Promise<PushResult>;
   sendChannelRevoked(channel: ChannelRow, tokens: string[], subscriberId?: string): Promise<void>;
+  sendRelayNameUpdated(channel: ChannelRow, tokens: string[], newRelayDeviceName: string): Promise<void>;
 }
 
 export class FcmPushService implements PushService {
@@ -176,6 +177,36 @@ export class FcmPushService implements PushService {
         await messaging.sendEach(batch);
       } catch (err: any) {
         console.error('[pushService] Error sending channel_revoked push:', err.message);
+      }
+    }
+  }
+
+  async sendRelayNameUpdated(channel: ChannelRow, tokens: string[], newRelayDeviceName: string): Promise<void> {
+    const messaging = this.firebaseAdminService.getMessaging();
+    if (!messaging || tokens.length === 0) {
+      return;
+    }
+
+    const messages: Message[] = tokens.map((token) => ({
+      token,
+      data: {
+        cn: '1',
+        type: 'relay_name_updated',
+        channelId: channel.channel_id,
+        relayDeviceName: newRelayDeviceName,
+      },
+      android: {
+        priority: 'high',
+      },
+    }));
+
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < messages.length; i += BATCH_SIZE) {
+      const batch = messages.slice(i, i + BATCH_SIZE);
+      try {
+        await messaging.sendEach(batch);
+      } catch (err: any) {
+        console.error('[pushService] Error sending relay_name_updated push:', err.message);
       }
     }
   }

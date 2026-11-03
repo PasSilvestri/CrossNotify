@@ -236,6 +236,50 @@ export class ChannelService {
     return row || null;
   }
 
+  getActiveSubscriberTokens(channelId: string): string[] {
+    const rows = this.db.prepare(`
+      SELECT fcm_token FROM subscribers
+      WHERE channel_id = ? AND status = 'active' AND fcm_token IS NOT NULL
+    `).all(channelId) as { fcm_token: string }[];
+    return rows.map((r) => r.fcm_token).filter((t): t is string => !!t && !t.startsWith('fcm_pending_'));
+  }
+
+  updateRelay(
+    channelId: string,
+    updates: {
+      deviceName?: string;
+      deviceModel?: string;
+      osVersion?: string;
+      appVersion?: string;
+    }
+  ): { channel: ChannelRow; previousDeviceName: string | null } {
+    const channel = this.getChannelById(channelId);
+    if (!channel || channel.status === 'revoked') {
+      throw { status: 404, code: 'channel_not_found', message: 'Channel not found or revoked' };
+    }
+
+    const previousDeviceName = channel.relay_device_name;
+    const now = Date.now();
+    this.db.prepare(`
+      UPDATE channels SET
+        last_seen_at = ?,
+        relay_device_name = COALESCE(?, relay_device_name),
+        relay_device_model = COALESCE(?, relay_device_model),
+        relay_os_version = COALESCE(?, relay_os_version),
+        relay_app_version = COALESCE(?, relay_app_version)
+      WHERE channel_id = ?
+    `).run(
+      now,
+      updates.deviceName || null,
+      updates.deviceModel || null,
+      updates.osVersion || null,
+      updates.appVersion || null,
+      channelId
+    );
+
+    return { channel: this.getChannelById(channelId)!, previousDeviceName };
+  }
+
   getChannelByApiKeyHash(hash: string): ChannelRow | null {
     const row = this.db.prepare('SELECT * FROM channels WHERE api_key_hash = ?').get(hash) as ChannelRow | undefined;
     return row || null;

@@ -114,6 +114,9 @@ interface SubscriptionDao {
     @Query("UPDATE subscriptions SET lastReceivedAt = :lastReceivedAt WHERE channelId = :channelId AND :lastReceivedAt > lastReceivedAt")
     suspend fun updateLastReceivedAt(channelId: String, lastReceivedAt: Long)
 
+    @Query("UPDATE subscriptions SET relayDevice = :relayDevice WHERE channelId = :channelId")
+    suspend fun updateRelayDevice(channelId: String, relayDevice: String)
+
     @Query("UPDATE subscriptions SET lastRegisteredFcmToken = :token WHERE channelId = :channelId")
     suspend fun updateLastRegisteredFcmToken(channelId: String, token: String)
 

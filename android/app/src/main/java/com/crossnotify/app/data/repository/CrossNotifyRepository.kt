@@ -23,6 +23,7 @@ import com.crossnotify.app.data.api.CrossNotifyApiClient
 import com.crossnotify.app.data.api.CrossNotifyApiException
 import com.crossnotify.app.data.api.PublishNotificationRequest
 import com.crossnotify.app.data.api.RelayInitRequest
+import com.crossnotify.app.data.api.RelayUpdateRequest
 import com.crossnotify.app.data.api.RemoteNotificationDto
 import com.crossnotify.app.data.api.SubscriberInitRequest
 import com.crossnotify.app.data.api.SubscriberUpdateSelfRequest
@@ -1041,5 +1042,82 @@ class CrossNotifyRepository @Inject constructor(
             ExistingWorkPolicy.REPLACE,
             request
         )
+    }
+
+    /**
+     * Updates the local cached relayDevice display name for a subscription.
+     */
+    suspend fun updateRelayDeviceName(channelId: String, newName: String) {
+        val existing = subscriptionDao.getById(channelId) ?: return
+        if (existing.relayDevice != newName) {
+            subscriptionDao.updateRelayDevice(channelId, newName)
+            Log.i(TAG, "Updated relayDevice name for channel $channelId to '$newName'")
+        }
+    }
+
+    /**
+     * Dispatches a new device display name across all active relay channels and subscriptions.
+     * - For relay channels: calls PUT /api/v1/channels/:channelId/relay to notify the server and trigger
+     *   an FCM push to all connected subscriber devices.
+     * - For subscriptions: calls PUT /api/v1/channels/:channelId/subscribers/self to update the server.
+     */
+    suspend fun dispatchDeviceNameUpdate(newName: String): Result<Unit> {
+        val deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+        val osVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
+        val appVersion = BuildConfig.VERSION_NAME
+        var anyFailures = false
+
+        // 1. Dispatch update for all active relay channels
+        val activeRelayChannels = relayChannelDao.getActive()
+        for (channel in activeRelayChannels) {
+            val server = serverDao.getById(channel.serverId) ?: continue
+            runCatching {
+                val apiKey = cryptoManager.unwrapString(channel.apiKeyEnc)
+                val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+                apiClient.unwrapResponse(
+                    service.updateRelay(
+                        authHeader = apiClient.bearerHeader(apiKey),
+                        channelId = channel.channelId,
+                        body = RelayUpdateRequest(
+                            deviceName = newName,
+                            deviceModel = deviceModel,
+                            osVersion = osVersion,
+                            appVersion = appVersion
+                        )
+                    )
+                )
+            }.onFailure { err ->
+                Log.w(TAG, "Failed to dispatch relay device name update for channel ${channel.channelId}: ${err.message}")
+                anyFailures = true
+            }
+        }
+
+        // 2. Dispatch update for all active subscriptions
+        val activeSubs = subscriptionDao.getActive()
+        for (sub in activeSubs) {
+            val server = serverDao.getById(sub.serverId) ?: continue
+            runCatching {
+                val subApiKey = cryptoManager.unwrapString(sub.apiKeyEnc)
+                val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+                apiClient.unwrapResponse(
+                    service.updateSubscriberSelf(
+                        authHeader = apiClient.bearerHeader(subApiKey),
+                        channelId = sub.channelId,
+                        body = SubscriberUpdateSelfRequest(
+                            deviceName = newName
+                        )
+                    )
+                )
+            }.onFailure { err ->
+                Log.w(TAG, "Failed to dispatch subscriber device name update for channel ${sub.channelId}: ${err.message}")
+                anyFailures = true
+            }
+        }
+
+        return if (anyFailures) {
+            Result.failure(Exception("Some device name updates failed to dispatch"))
+        } else {
+            Result.success(Unit)
+        }
     }
 }

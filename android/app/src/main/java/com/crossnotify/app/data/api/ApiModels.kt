@@ -20,6 +20,21 @@ data class RelayInitResponse(
 )
 
 @Serializable
+data class RelayUpdateRequest(
+    val deviceName: String? = null,
+    val deviceModel: String? = null,
+    val osVersion: String? = null,
+    val appVersion: String? = null
+)
+
+@Serializable
+data class RelayUpdateResponse(
+    val status: String = "ok",
+    val channelId: String? = null,
+    val relayDeviceName: String? = null
+)
+
+@Serializable
 data class ChannelInfoResponse(
     val channelId: String,
     val name: String,

@@ -115,6 +115,61 @@ describe('Relay Provisioning & Device Auth (Tests 5 & 6)', () => {
     expect(channel2?.relay_device_name).toBe('Pixel 8 Pro Updated');
   });
 
+  it('PUT /channels/:channelId/relay updates deviceName and dispatches relay_name_updated push to active subscribers', async () => {
+    const relayRes = await request(testEnv.ctx.app)
+      .post('/admin/api/relays')
+      .set('Cookie', authCookie)
+      .send({ name: 'Work Phone' });
+
+    const { apiKey, channelId } = {
+      apiKey: relayRes.body.qrPayload.apiKey,
+      channelId: relayRes.body.channelId,
+    };
+
+    // Activate channel
+    await request(testEnv.ctx.app)
+      .post('/api/v1/relay/init')
+      .set('Authorization', `Bearer ${apiKey}`)
+      .send({ deviceName: 'Initial Pixel' });
+
+    // Mint and activate a subscriber
+    const mintRes = await request(testEnv.ctx.app)
+      .post(`/api/v1/channels/${channelId}/subscribers/keys`)
+      .set('Authorization', `Bearer ${apiKey}`);
+    const subApiKey = mintRes.body.apiKey;
+
+    await request(testEnv.ctx.app)
+      .post(`/api/v1/channels/${channelId}/subscribers/init`)
+      .set('Authorization', `Bearer ${subApiKey}`)
+      .send({
+        fcmToken: 'fcm_subscriber_token_123',
+        deviceName: 'Personal Galaxy',
+      });
+
+    testEnv.mockPush.reset();
+
+    // Now relay updates its name via PUT /channels/:channelId/relay
+    const updateRes = await request(testEnv.ctx.app)
+      .put(`/api/v1/channels/${channelId}/relay`)
+      .set('Authorization', `Bearer ${apiKey}`)
+      .send({
+        deviceName: 'Updated Work Pixel 9',
+      });
+
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.status).toBe('ok');
+    expect(updateRes.body.relayDeviceName).toBe('Updated Work Pixel 9');
+
+    // Verify DB updated
+    const channel = testEnv.ctx.services.channelService.getChannelById(channelId);
+    expect(channel?.relay_device_name).toBe('Updated Work Pixel 9');
+
+    // Verify mockPush called
+    expect(testEnv.mockPush.relayNameUpdatedCalls).toHaveLength(1);
+    expect(testEnv.mockPush.relayNameUpdatedCalls[0].tokens).toEqual(['fcm_subscriber_token_123']);
+    expect(testEnv.mockPush.relayNameUpdatedCalls[0].newRelayDeviceName).toBe('Updated Work Pixel 9');
+  });
+
   it('expired pending channel init returns 410 provisioning_expired', async () => {
     const relayRes = await request(testEnv.ctx.app)
       .post('/admin/api/relays')

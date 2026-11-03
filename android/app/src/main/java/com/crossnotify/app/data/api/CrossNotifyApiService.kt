@@ -18,6 +18,13 @@ interface CrossNotifyApiService {
         @Body body: RelayInitRequest
     ): Response<RelayInitResponse>
 
+    @PUT("api/v1/channels/{channelId}/relay")
+    suspend fun updateRelay(
+        @Header("Authorization") authHeader: String,
+        @Path("channelId") channelId: String,
+        @Body body: RelayUpdateRequest
+    ): Response<RelayUpdateResponse>
+
     @GET("api/v1/channels/{channelId}")
     suspend fun getChannelInfo(
         @Header("Authorization") authHeader: String,
