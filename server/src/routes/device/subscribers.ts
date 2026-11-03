@@ -21,9 +21,10 @@ const SubscriberInitSchema = z.object({
 });
 
 const SubscriberUpdateSelfSchema = z.object({
-  fcmToken: z.string().optional(),
-  deviceName: z.string().optional(),
-  deliveryMode: z.enum(['battery_saver', 'immediate_preview']).optional(),
+  fcmToken: z.string().nullable().optional(),
+  deviceName: z.string().trim().min(1).max(100).nullable().optional(),
+  deviceModel: z.string().trim().nullable().optional(),
+  deliveryMode: z.enum(['battery_saver', 'immediate_preview']).nullable().optional(),
 });
 
 export function createDeviceSubscribersRouter(

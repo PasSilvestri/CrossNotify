@@ -23,6 +23,7 @@ class CrossNotifyApiClient @Inject constructor() {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+        explicitNulls = false
     }
 
     private data class ServiceCacheKey(

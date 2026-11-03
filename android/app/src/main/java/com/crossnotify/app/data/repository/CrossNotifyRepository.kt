@@ -1011,7 +1011,8 @@ class CrossNotifyRepository @Inject constructor(
                             channelId = sub.channelId,
                             body = SubscriberUpdateSelfRequest(
                                 fcmToken = currentToken,
-                                deviceName = appPreferences.deviceName.value
+                                deviceName = appPreferences.deviceName.value,
+                                deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
                             )
                         )
                     )
@@ -1105,7 +1106,8 @@ class CrossNotifyRepository @Inject constructor(
                         authHeader = apiClient.bearerHeader(subApiKey),
                         channelId = sub.channelId,
                         body = SubscriberUpdateSelfRequest(
-                            deviceName = newName
+                            deviceName = newName,
+                            deviceModel = deviceModel
                         )
                     )
                 )

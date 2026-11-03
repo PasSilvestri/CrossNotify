@@ -129,12 +129,27 @@ describe('Subscriber Key Engine & Individual Revocation (Test 9)', () => {
     expect(updateRes.status).toBe(200);
     expect(updateRes.body.deliveryMode).toBe('immediate_preview');
 
-    // Confirm no duplicate row created
+    // Update deviceName and deviceModel with nulls in other fields (as sent by mobile JSON serializers)
+    const updateNameRes = await request(testEnv.ctx.app)
+      .put(`/api/v1/channels/${channelId}/subscribers/self`)
+      .set('Authorization', `Bearer ${subKey}`)
+      .send({
+        fcmToken: null,
+        deviceName: 'Renamed Subscriber Phone',
+        deviceModel: 'Pixel 8 Pro',
+        deliveryMode: null,
+      });
+
+    expect(updateNameRes.status).toBe(200);
+
+    // Confirm no duplicate row created and updated name appears in channel detail
     const detailRes = await request(testEnv.ctx.app)
       .get(`/admin/api/channels/${channelId}`)
       .set('Cookie', authCookie);
 
     expect(detailRes.body.subscribers.length).toBe(1);
+    expect(detailRes.body.subscribers[0].deviceName).toBe('Renamed Subscriber Phone');
+    expect(detailRes.body.subscribers[0].deviceModel).toBe('Pixel 8 Pro');
   });
 
   it('individual subscriber revocation invalidates key immediately without affecting others', async () => {

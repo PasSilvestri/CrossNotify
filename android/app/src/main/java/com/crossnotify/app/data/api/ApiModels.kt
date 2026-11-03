@@ -112,6 +112,7 @@ data class SubscriberInitResponse(
 data class SubscriberUpdateSelfRequest(
     val fcmToken: String? = null,
     val deviceName: String? = null,
+    val deviceModel: String? = null,
     val deliveryMode: String? = null
 )
 

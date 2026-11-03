@@ -169,7 +169,12 @@ export class SubscriberService {
 
   updateSelf(
     subscriberId: string,
-    updates: { fcmToken?: string; deviceName?: string; deliveryMode?: 'battery_saver' | 'immediate_preview' }
+    updates: {
+      fcmToken?: string | null;
+      deviceName?: string | null;
+      deviceModel?: string | null;
+      deliveryMode?: 'battery_saver' | 'immediate_preview' | null;
+    }
   ): { subscriberId: string; deliveryMode: string } {
     const sub = this.getSubscriberById(subscriberId);
     if (!sub || sub.status !== 'active') {
@@ -181,12 +186,14 @@ export class SubscriberService {
       UPDATE subscribers SET
         fcm_token = COALESCE(?, fcm_token),
         device_name = COALESCE(?, device_name),
+        device_model = COALESCE(?, device_model),
         delivery_mode = COALESCE(?, delivery_mode),
         last_seen_at = ?
       WHERE subscriber_id = ?
     `).run(
       updates.fcmToken || null,
       updates.deviceName || null,
+      updates.deviceModel || null,
       updates.deliveryMode || null,
       now,
       subscriberId
