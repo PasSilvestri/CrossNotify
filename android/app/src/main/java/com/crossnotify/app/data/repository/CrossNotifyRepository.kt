@@ -19,6 +19,7 @@ import com.crossnotify.app.crypto.E2ECryptoEngine
 import com.crossnotify.app.crypto.NotificationPlaintext
 import com.crossnotify.app.crypto.OriginInfo
 import com.crossnotify.app.data.api.ChannelInfoResponse
+import com.crossnotify.app.data.api.ConnectionTestResult
 import com.crossnotify.app.data.api.CrossNotifyApiClient
 import com.crossnotify.app.data.api.CrossNotifyApiException
 import com.crossnotify.app.data.api.PublishNotificationRequest
@@ -1118,6 +1119,75 @@ class CrossNotifyRepository @Inject constructor(
             Result.failure(Exception("Some device name updates failed to dispatch"))
         } else {
             Result.success(Unit)
+        }
+    }
+
+    /**
+     * Tests the reachability and authorization for a relay channel with its server.
+     */
+    suspend fun testRelayConnection(channelId: String): ConnectionTestResult {
+        val channel = relayChannelDao.getById(channelId)
+            ?: return ConnectionTestResult(false, 0L, "Channel not found locally")
+        val server = serverDao.getById(channel.serverId)
+            ?: return ConnectionTestResult(false, 0L, "Server configuration not found")
+
+        val start = System.currentTimeMillis()
+        return try {
+            val relayApiKey = cryptoManager.unwrapString(channel.apiKeyEnc)
+            val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+            val info = apiClient.unwrapResponse(
+                service.getChannelInfo(apiClient.bearerHeader(relayApiKey), channelId)
+            )
+            val latency = System.currentTimeMillis() - start
+            if (info.status == "revoked") {
+                relayChannelDao.setActive(channelId, false)
+                ConnectionTestResult(false, latency, "Channel is REVOKED on server (${latency}ms)")
+            } else {
+                ConnectionTestResult(
+                    true,
+                    latency,
+                    "Connected to ${server.name} (${latency}ms) • Channel is ${info.status.uppercase()}"
+                )
+            }
+        } catch (e: Exception) {
+            val latency = System.currentTimeMillis() - start
+            ConnectionTestResult(false, latency, e.message ?: "Failed to connect to ${server.url}")
+        }
+    }
+
+    /**
+     * Tests the reachability and authorization for a subscriber channel with its server.
+     */
+    suspend fun testSubscriptionConnection(channelId: String): ConnectionTestResult {
+        val sub = subscriptionDao.getById(channelId)
+            ?: return ConnectionTestResult(false, 0L, "Subscription not found locally")
+        val server = serverDao.getById(sub.serverId)
+            ?: return ConnectionTestResult(false, 0L, "Server configuration not found")
+
+        val start = System.currentTimeMillis()
+        return try {
+            val subApiKey = cryptoManager.unwrapString(sub.apiKeyEnc)
+            val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+            val info = apiClient.unwrapResponse(
+                service.getChannelInfo(apiClient.bearerHeader(subApiKey), channelId)
+            )
+            val latency = System.currentTimeMillis() - start
+            if (info.status == "revoked") {
+                subscriptionDao.markRevokedAndWipeKeys(channelId)
+                ConnectionTestResult(false, latency, "Subscription is REVOKED on server (${latency}ms)")
+            } else {
+                if (!info.relayDeviceName.isNullOrBlank() && info.relayDeviceName != sub.relayDevice) {
+                    subscriptionDao.updateRelayDevice(channelId, info.relayDeviceName)
+                }
+                ConnectionTestResult(
+                    true,
+                    latency,
+                    "Connected to ${server.name} (${latency}ms) • Status: ${info.status.uppercase()}"
+                )
+            }
+        } catch (e: Exception) {
+            val latency = System.currentTimeMillis() - start
+            ConnectionTestResult(false, latency, e.message ?: "Failed to connect to ${server.url}")
         }
     }
 }

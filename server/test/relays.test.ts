@@ -168,6 +168,22 @@ describe('Relay Provisioning & Device Auth (Tests 5 & 6)', () => {
     expect(testEnv.mockPush.relayNameUpdatedCalls).toHaveLength(1);
     expect(testEnv.mockPush.relayNameUpdatedCalls[0].tokens).toEqual(['fcm_subscriber_token_123']);
     expect(testEnv.mockPush.relayNameUpdatedCalls[0].newRelayDeviceName).toBe('Updated Work Pixel 9');
+
+    // Relay can fetch subscribers list via GET /api/v1/channels/:channelId and /subscribers
+    const infoRes = await request(testEnv.ctx.app)
+      .get(`/api/v1/channels/${channelId}`)
+      .set('Authorization', `Bearer ${apiKey}`);
+    expect(infoRes.status).toBe(200);
+    expect(infoRes.body.subscribers).toBeDefined();
+    expect(infoRes.body.subscribers).toHaveLength(1);
+    expect(infoRes.body.subscribers[0].deviceName).toBe('Personal Galaxy');
+
+    const subsRes = await request(testEnv.ctx.app)
+      .get(`/api/v1/channels/${channelId}/subscribers`)
+      .set('Authorization', `Bearer ${apiKey}`);
+    expect(subsRes.status).toBe(200);
+    expect(subsRes.body.subscribers).toHaveLength(1);
+    expect(subsRes.body.subscribers[0].deviceName).toBe('Personal Galaxy');
   });
 
   it('expired pending channel init returns 410 provisioning_expired', async () => {

@@ -101,6 +101,20 @@ export function createDeviceSubscribersRouter(
     }
   );
 
+  // GET /api/v1/channels/:channelId/subscribers (Relay gets active subscribers list)
+  router.get(
+    '/channels/:channelId/subscribers',
+    requireRelayKey(channelService),
+    (req: DeviceRequest, res) => {
+      const channel = req.channel!;
+      const detail = channelService.getChannelDetail(channel.channel_id);
+      res.json({
+        channelId: channel.channel_id,
+        subscribers: detail?.subscribers || [],
+      });
+    }
+  );
+
   // GET /api/v1/channels/:channelId (Relay or Subscriber gets channel info)
   router.get(
     '/channels/:channelId',
@@ -109,6 +123,7 @@ export function createDeviceSubscribersRouter(
       const channel = req.channel!;
       const detail = channelService.getChannelDetail(channel.channel_id);
       const settings = settingsService.getAll();
+      const isRelay = Boolean(req.rawApiKey?.startsWith('cnr_') || (req.channel && !req.subscriber));
 
       res.json({
         channelId: channel.channel_id,
@@ -118,6 +133,7 @@ export function createDeviceSubscribersRouter(
         relayDeviceName: channel.relay_device_name,
         subscriberCount: detail?.subscriberCount || 0,
         notificationTtlHours: settings.notificationTtlHours,
+        ...(isRelay ? { subscribers: detail?.subscribers || [] } : {}),
       });
     }
   );

@@ -31,6 +31,12 @@ interface CrossNotifyApiService {
         @Path("channelId") channelId: String
     ): Response<ChannelInfoResponse>
 
+    @GET("api/v1/channels/{channelId}/subscribers")
+    suspend fun getChannelSubscribers(
+        @Header("Authorization") authHeader: String,
+        @Path("channelId") channelId: String
+    ): Response<ChannelSubscribersResponse>
+
     @DELETE("api/v1/channels/{channelId}")
     suspend fun deleteChannel(
         @Header("Authorization") authHeader: String,

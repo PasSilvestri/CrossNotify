@@ -36,6 +36,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -69,12 +70,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.crossnotify.app.data.api.ConnectionTestResult
+import com.crossnotify.app.data.api.SubscriberDeviceDto
 import com.crossnotify.app.data.db.RelayChannelEntity
 import com.crossnotify.app.ui.MainViewModel
 import com.crossnotify.app.ui.components.PermissionsHealthSection
 import com.crossnotify.app.ui.components.queryPermissionHealth
 import com.crossnotify.app.ui.theme.parseHexColor
 import com.crossnotify.app.util.AppIcon
+import java.text.DateFormat
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,10 +112,14 @@ fun RelayScreen(
             serverName = server?.name ?: "Server",
             serverUrl = server?.url ?: "",
             subscriberCount = liveInfo?.subscriberCount,
+            subscribers = liveInfo?.subscribers ?: emptyList(),
             filterPackages = filterPackages.toSet(),
             installedApps = installedApps,
             onBack = { selectedChannelId = null },
             onRefreshInfo = { viewModel.refreshRelayChannelInfo(selectedChannel.channelId) },
+            onTestConnection = { onResult ->
+                viewModel.testRelayConnection(selectedChannel.channelId, onResult)
+            },
             onShareQr = { onShareSubscriberQrWithBiometric(selectedChannel) },
             onToggleSendAppName = { viewModel.setRelaySendAppName(selectedChannel.channelId, it) },
             onChangeFilterMode = { viewModel.setRelayFilterMode(selectedChannel.channelId, it) },
@@ -357,10 +366,12 @@ private fun RelayChannelDetailContent(
     serverName: String,
     serverUrl: String,
     subscriberCount: Int?,
+    subscribers: List<SubscriberDeviceDto>,
     filterPackages: Set<String>,
     installedApps: List<com.crossnotify.app.ui.InstalledAppInfo>,
     onBack: () -> Unit,
     onRefreshInfo: () -> Unit,
+    onTestConnection: ((ConnectionTestResult) -> Unit) -> Unit,
     onShareQr: () -> Unit,
     onToggleSendAppName: (Boolean) -> Unit,
     onChangeFilterMode: (String) -> Unit,
@@ -369,6 +380,8 @@ private fun RelayChannelDetailContent(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showRemoveConfirm by remember { mutableStateOf(false) }
+    var isTestingConnection by remember { mutableStateOf(false) }
+    var connectionTestResult by remember { mutableStateOf<ConnectionTestResult?>(null) }
 
     val filteredApps = remember(installedApps, searchQuery, filterPackages) {
         val q = searchQuery.trim().lowercase()
@@ -427,6 +440,177 @@ private fun RelayChannelDetailContent(
                             Icon(Icons.Default.QrCode2, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Share with Subscriber (Biometric + QR)")
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Server Connection",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Verify relay authentication, TLS handshake, and network reachability with $serverName.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                isTestingConnection = true
+                                connectionTestResult = null
+                                onTestConnection { result ->
+                                    isTestingConnection = false
+                                    connectionTestResult = result
+                                }
+                            },
+                            enabled = !isTestingConnection
+                        ) {
+                            if (isTestingConnection) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Testing...")
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Test Connection")
+                            }
+                        }
+                        if (connectionTestResult != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val result = connectionTestResult!!
+                            Text(
+                                text = result.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = if (result.isSuccess) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        val activeSubscribers = remember(subscribers) {
+                            subscribers.filter { it.status != "revoked" }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Paired Subscribers (${activeSubscribers.size})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            IconButton(
+                                onClick = onRefreshInfo,
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh subscribers",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        if (activeSubscribers.isEmpty()) {
+                            Text(
+                                text = "No subscriber phones paired with this channel yet.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Tap 'Share with Subscriber' above to pair a phone.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                        } else {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.padding(top = 8.dp)
+                            ) {
+                                activeSubscribers.forEachIndexed { index, sub ->
+                                    if (index > 0) {
+                                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                    }
+                                    Column {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = sub.deviceName ?: "Android Device",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                if (!sub.deviceModel.isNullOrBlank()) {
+                                                    Text(
+                                                        text = sub.deviceModel,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                            Surface(
+                                                color = if (sub.deliveryMode == "immediate_preview") {
+                                                    MaterialTheme.colorScheme.secondaryContainer
+                                                } else {
+                                                    MaterialTheme.colorScheme.surfaceVariant
+                                                },
+                                                shape = MaterialTheme.shapes.small
+                                            ) {
+                                                Text(
+                                                    text = if (sub.deliveryMode == "immediate_preview") "IMMEDIATE" else "BATTERY SAVER",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            val createdStr = sub.createdAt?.takeIf { it > 0 }?.let { formatRelayDate(it) }
+                                            if (createdStr != null) {
+                                                Text(
+                                                    text = "Paired: $createdStr",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            val seenStr = sub.lastSeenAt?.takeIf { it > 0 }?.let { formatRelayDate(it) } ?: "Never"
+                                            Text(
+                                                text = "Last seen: $seenStr",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -599,4 +783,9 @@ private fun RelayChannelDetailContent(
             }
         )
     }
+}
+
+private fun formatRelayDate(epochMs: Long): String {
+    if (epochMs <= 0L) return "Never"
+    return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(epochMs))
 }

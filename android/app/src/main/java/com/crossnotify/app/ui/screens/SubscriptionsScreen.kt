@@ -23,11 +23,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -51,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.crossnotify.app.data.api.ConnectionTestResult
 import com.crossnotify.app.data.db.RelayChannelEntity
 import com.crossnotify.app.data.db.SubscriptionEntity
 import com.crossnotify.app.ui.MainViewModel
@@ -78,6 +81,9 @@ fun SubscriptionsScreen(
             serverUrl = server?.url ?: "",
             availableRelayChannels = relayChannels.filter { it.active && it.channelId != selectedSubscription.channelId },
             onBack = { selectedSubscriptionId = null },
+            onTestConnection = { onResult ->
+                viewModel.testSubscriptionConnection(selectedSubscription.channelId, onResult)
+            },
             onChangeDeliveryMode = { mode ->
                 viewModel.updateSubscriptionDeliveryMode(selectedSubscription.channelId, mode)
             },
@@ -272,11 +278,14 @@ private fun SubscriptionDetailContent(
     serverUrl: String,
     availableRelayChannels: List<RelayChannelEntity>,
     onBack: () -> Unit,
+    onTestConnection: ((ConnectionTestResult) -> Unit) -> Unit,
     onChangeDeliveryMode: (String) -> Unit,
     onChangeForwarding: (String?) -> Unit,
     onUnsubscribe: () -> Unit
 ) {
     var showUnsubscribeConfirm by remember { mutableStateOf(false) }
+    var isTestingConnection by remember { mutableStateOf(false) }
+    var connectionTestResult by remember { mutableStateOf<ConnectionTestResult?>(null) }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -320,6 +329,64 @@ private fun SubscriptionDetailContent(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Server Connection",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Verify network reachability and subscription authorization with $serverName.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                isTestingConnection = true
+                                connectionTestResult = null
+                                onTestConnection { result ->
+                                    isTestingConnection = false
+                                    connectionTestResult = result
+                                }
+                            },
+                            enabled = !isTestingConnection
+                        ) {
+                            if (isTestingConnection) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Testing...")
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Test Connection")
+                            }
+                        }
+                        if (connectionTestResult != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val result = connectionTestResult!!
+                            Text(
+                                text = result.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = if (result.isSuccess) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                }
+                            )
+                        }
                     }
                 }
             }

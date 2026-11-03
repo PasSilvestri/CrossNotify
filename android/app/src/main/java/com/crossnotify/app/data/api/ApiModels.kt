@@ -35,6 +35,30 @@ data class RelayUpdateResponse(
 )
 
 @Serializable
+data class SubscriberDeviceDto(
+    val subscriberId: String,
+    val deviceName: String? = null,
+    val deviceModel: String? = null,
+    val deliveryMode: String = "battery_saver",
+    val status: String = "active",
+    val createdAt: Long = 0L,
+    val activatedAt: Long? = null,
+    val lastSeenAt: Long? = null
+)
+
+@Serializable
+data class ChannelSubscribersResponse(
+    val channelId: String,
+    val subscribers: List<SubscriberDeviceDto> = emptyList()
+)
+
+data class ConnectionTestResult(
+    val isSuccess: Boolean,
+    val latencyMs: Long,
+    val message: String
+)
+
+@Serializable
 data class ChannelInfoResponse(
     val channelId: String,
     val name: String,
@@ -42,7 +66,8 @@ data class ChannelInfoResponse(
     val status: String,
     val relayDeviceName: String? = null,
     val subscriberCount: Int = 0,
-    val notificationTtlHours: Int = 48
+    val notificationTtlHours: Int = 48,
+    val subscribers: List<SubscriberDeviceDto>? = null
 )
 
 @Serializable

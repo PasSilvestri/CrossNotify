@@ -258,6 +258,23 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    fun testRelayConnection(channelId: String, onResult: (com.crossnotify.app.data.api.ConnectionTestResult) -> Unit) {
+        viewModelScope.launch {
+            val result = repository.testRelayConnection(channelId)
+            if (result.isSuccess) {
+                refreshRelayChannelInfo(channelId)
+            }
+            onResult(result)
+        }
+    }
+
+    fun testSubscriptionConnection(channelId: String, onResult: (com.crossnotify.app.data.api.ConnectionTestResult) -> Unit) {
+        viewModelScope.launch {
+            val result = repository.testSubscriptionConnection(channelId)
+            onResult(result)
+        }
+    }
+
     fun generateShareSubscriberQr(channel: RelayChannelEntity) {
         viewModelScope.launch {
             _isBusy.value = true
