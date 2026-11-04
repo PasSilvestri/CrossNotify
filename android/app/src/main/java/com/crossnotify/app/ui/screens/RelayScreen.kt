@@ -144,6 +144,7 @@ fun RelayScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 healthState = queryPermissionHealth(context)
+                viewModel.syncRelayChannels()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -176,6 +177,11 @@ fun RelayScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.syncRelayChannels() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Channels")
                     }
                 }
             )

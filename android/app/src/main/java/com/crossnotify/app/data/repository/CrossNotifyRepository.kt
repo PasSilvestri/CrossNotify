@@ -175,6 +175,13 @@ class CrossNotifyRepository @Inject constructor(
         // 1. Initialize FirebaseApp for this project (with Multiple Firebase Fallback)
         firebaseProjectManager.ensureProjectInitialized(payload.firebase)
 
+        val fcmToken = try {
+            firebaseProjectManager.getFcmToken(payload.firebase)
+        } catch (e: Exception) {
+            Log.w(TAG, "Relay FCM token retrieval failed (${e.message}), using null fallback", e)
+            null
+        }
+
         // 2. Call POST /api/v1/relay/init
         val service = apiClient.serviceFor(normalizedUrl, allowHttp)
         val initResponse = apiClient.unwrapResponse(
@@ -184,10 +191,15 @@ class CrossNotifyRepository @Inject constructor(
                     deviceName = appPreferences.deviceName.value,
                     deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
                     osVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
-                    appVersion = BuildConfig.VERSION_NAME
+                    appVersion = BuildConfig.VERSION_NAME,
+                    fcmToken = fcmToken
                 )
             )
         )
+
+        if (!fcmToken.isNullOrBlank()) {
+            appPreferences.setRelayLastFcmToken(initResponse.channelId, fcmToken)
+        }
 
         // 3. Upsert ServerEntity
         val server = upsertServerFromQr(
@@ -294,11 +306,20 @@ class CrossNotifyRepository @Inject constructor(
             ?: throw IllegalStateException("Server not found")
         val relayApiKey = cryptoManager.unwrapString(channel.apiKeyEnc)
         val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
-        val info = apiClient.unwrapResponse(
-            service.getChannelInfo(apiClient.bearerHeader(relayApiKey), channelId)
-        )
+        val info = try {
+            apiClient.unwrapResponse(
+                service.getChannelInfo(apiClient.bearerHeader(relayApiKey), channelId)
+            )
+        } catch (apiErr: CrossNotifyApiException) {
+            if (apiErr.isRevokedOrUnauthorized) {
+                relayChannelDao.setActive(channelId, false)
+                outboxDao.deleteByChannel(channelId)
+            }
+            throw apiErr
+        }
         if (info.status == "revoked") {
             relayChannelDao.setActive(channelId, false)
+            outboxDao.deleteByChannel(channelId)
         }
         info
     }
@@ -664,12 +685,109 @@ class CrossNotifyRepository @Inject constructor(
      * Firebase senderId of the server bound to [channelId].
      */
     suspend fun verifyPushSenderForChannel(channelId: String, senderId: String?): Boolean {
-        val sub = subscriptionDao.getById(channelId) ?: return false
-        val server = serverDao.getById(sub.serverId) ?: return false
+        val serverId = subscriptionDao.getById(channelId)?.serverId
+            ?: relayChannelDao.getById(channelId)?.serverId
+            ?: return false
+        val server = serverDao.getById(serverId) ?: return false
         if (!senderId.isNullOrBlank() && server.fbSenderId.isNotBlank()) {
             return server.fbSenderId == senderId
         }
         return true
+    }
+
+    /**
+     * Handles an incoming `channel_revoked` FCM push for subscriptions and/or relay channels.
+     */
+    suspend fun handlePushChannelRevoked(channelId: String, targetSubscriberId: String? = null) {
+        val sub = subscriptionDao.getById(channelId)
+        if (sub != null) {
+            handlePushSubscriptionRevoked(channelId, targetSubscriberId)
+        }
+
+        val relay = relayChannelDao.getById(channelId)
+        if (relay != null && targetSubscriberId == null) {
+            handlePushRelayChannelRevoked(channelId)
+        }
+    }
+
+    /**
+     * Handles an untrusted `channel_revoked` FCM push by verifying with the server
+     * that the relay channel is no longer active before marking it revoked.
+     */
+    suspend fun handlePushRelayChannelRevoked(channelId: String) {
+        val channel = relayChannelDao.getById(channelId) ?: return
+        if (!channel.active) return
+
+        val server = serverDao.getById(channel.serverId)
+        if (server != null && channel.apiKeyEnc.isNotBlank()) {
+            val stillActiveOnServer = runCatching {
+                val relayApiKey = cryptoManager.unwrapString(channel.apiKeyEnc)
+                val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+                val response = service.getChannelInfo(apiClient.bearerHeader(relayApiKey), channelId)
+                response.isSuccessful && response.body()?.status != "revoked"
+            }.getOrDefault(false)
+
+            if (stillActiveOnServer) {
+                Log.w(TAG, "Ignored unverified channel_revoked push for active relay channel $channelId")
+                return
+            }
+        }
+        handleRelayChannelRevoked(channelId)
+    }
+
+    suspend fun handleRelayChannelRevoked(channelId: String) {
+        val channel = relayChannelDao.getById(channelId) ?: return
+        if (!channel.active) return
+
+        relayChannelDao.setActive(channelId, false)
+        outboxDao.deleteByChannel(channelId)
+        notificationHelper.postSystemAlert(
+            title = "Relay channel revoked: ${channel.name}",
+            body = "This channel was revoked by the server administrator. Relaying has stopped.",
+            tag = "revoked_relay_$channelId"
+        )
+    }
+
+    /**
+     * Validates active relay channels with the server on demand (e.g. on screen entry or app resume).
+     * If a channel is revoked or rejected with 401/403, immediately marks it inactive and purges its outbox.
+     * Returns the list of channel IDs that were detected as revoked.
+     */
+    suspend fun syncRelayChannelsStatus(): List<String> {
+        val activeChannels = relayChannelDao.getActive()
+        if (activeChannels.isEmpty()) return emptyList()
+
+        val revoked = mutableListOf<String>()
+        for (channel in activeChannels) {
+            val server = serverDao.getById(channel.serverId) ?: continue
+            val relayApiKey = runCatching { cryptoManager.unwrapString(channel.apiKeyEnc) }.getOrNull() ?: continue
+            val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+
+            val isRevoked = try {
+                val response = service.getChannelInfo(apiClient.bearerHeader(relayApiKey), channel.channelId)
+                if (response.code() == 401 || response.code() == 403 || (response.isSuccessful && response.body()?.status == "revoked")) {
+                    true
+                } else {
+                    false
+                }
+            } catch (apiErr: CrossNotifyApiException) {
+                apiErr.isRevokedOrUnauthorized
+            } catch (e: Exception) {
+                false
+            }
+
+            if (isRevoked) {
+                relayChannelDao.setActive(channel.channelId, false)
+                outboxDao.deleteByChannel(channel.channelId)
+                notificationHelper.postSystemAlert(
+                    title = "Relay channel revoked: ${channel.name}",
+                    body = "This channel was revoked on the server. Relaying has stopped.",
+                    tag = "revoked_relay_${channel.channelId}"
+                )
+                revoked.add(channel.channelId)
+            }
+        }
+        return revoked
     }
 
     /**
@@ -1026,6 +1144,43 @@ class CrossNotifyRepository @Inject constructor(
                 }
             }
         }
+        refreshFcmTokensForAllRelayChannels()
+    }
+
+    /**
+     * Verifies FCM registration tokens across all active relay channels and notifies the
+     * respective servers whenever a token has been rotated.
+     */
+    suspend fun refreshFcmTokensForAllRelayChannels() {
+        val activeChannels = relayChannelDao.getActive()
+        for (channel in activeChannels) {
+            val server = serverDao.getById(channel.serverId) ?: continue
+            runCatching {
+                val currentToken = firebaseProjectManager.getFcmToken(server)
+                val lastToken = appPreferences.getRelayLastFcmToken(channel.channelId)
+                if (currentToken.isNotBlank() && currentToken != lastToken) {
+                    val relayApiKey = cryptoManager.unwrapString(channel.apiKeyEnc)
+                    val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+                    apiClient.unwrapResponse(
+                        service.updateRelay(
+                            authHeader = apiClient.bearerHeader(relayApiKey),
+                            channelId = channel.channelId,
+                            body = RelayUpdateRequest(
+                                fcmToken = currentToken
+                            )
+                        )
+                    )
+                    appPreferences.setRelayLastFcmToken(channel.channelId, currentToken)
+                }
+            }.onFailure { err ->
+                if (err is CrossNotifyApiException && err.isRevokedOrUnauthorized) {
+                    relayChannelDao.setActive(channel.channelId, false)
+                    outboxDao.deleteByChannel(channel.channelId)
+                } else {
+                    Log.w(TAG, "Token refresh check failed for relay channel ${channel.channelId}: ${err.message}")
+                }
+            }
+        }
     }
 
     fun scheduleCatchUpSync(channelId: String? = null) {
@@ -1143,6 +1298,7 @@ class CrossNotifyRepository @Inject constructor(
             val latency = System.currentTimeMillis() - start
             if (info.status == "revoked") {
                 relayChannelDao.setActive(channelId, false)
+                outboxDao.deleteByChannel(channelId)
                 ConnectionTestResult(false, latency, "Channel is REVOKED on server (${latency}ms)")
             } else {
                 ConnectionTestResult(
@@ -1150,6 +1306,15 @@ class CrossNotifyRepository @Inject constructor(
                     latency,
                     "Connected to ${server.name} (${latency}ms) • Channel is ${info.status.uppercase()}"
                 )
+            }
+        } catch (apiErr: CrossNotifyApiException) {
+            val latency = System.currentTimeMillis() - start
+            if (apiErr.isRevokedOrUnauthorized) {
+                relayChannelDao.setActive(channelId, false)
+                outboxDao.deleteByChannel(channelId)
+                ConnectionTestResult(false, latency, "Channel is REVOKED on server (${apiErr.errorCode})")
+            } else {
+                ConnectionTestResult(false, latency, apiErr.message)
             }
         } catch (e: Exception) {
             val latency = System.currentTimeMillis() - start

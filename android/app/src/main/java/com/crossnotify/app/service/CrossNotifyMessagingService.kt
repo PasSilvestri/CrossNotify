@@ -52,7 +52,7 @@ class CrossNotifyMessagingService : FirebaseMessagingService() {
                 "channel_revoked" -> {
                     val incomingSubId = data["subscriberId"]?.takeIf { it.isNotBlank() }
                     Log.i(TAG, "Received channel_revoked push for channel $channelId (subscriberId=$incomingSubId)")
-                    repository.handlePushSubscriptionRevoked(channelId, incomingSubId)
+                    repository.handlePushChannelRevoked(channelId, incomingSubId)
                 }
                 "relay_name_updated", "device_name_updated" -> {
                     val newName = data["relayDeviceName"] ?: data["deviceName"]

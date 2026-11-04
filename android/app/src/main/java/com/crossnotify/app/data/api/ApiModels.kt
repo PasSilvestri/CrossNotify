@@ -7,7 +7,8 @@ data class RelayInitRequest(
     val deviceName: String,
     val deviceModel: String,
     val osVersion: String,
-    val appVersion: String
+    val appVersion: String,
+    val fcmToken: String? = null
 )
 
 @Serializable
@@ -24,7 +25,8 @@ data class RelayUpdateRequest(
     val deviceName: String? = null,
     val deviceModel: String? = null,
     val osVersion: String? = null,
-    val appVersion: String? = null
+    val appVersion: String? = null,
+    val fcmToken: String? = null
 )
 
 @Serializable

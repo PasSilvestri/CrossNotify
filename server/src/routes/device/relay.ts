@@ -11,6 +11,7 @@ const RelayInitSchema = z.object({
   deviceModel: z.string().optional(),
   osVersion: z.string().optional(),
   appVersion: z.string().optional(),
+  fcmToken: z.string().optional(),
 });
 
 const RelayUpdateSchema = z.object({
@@ -18,6 +19,7 @@ const RelayUpdateSchema = z.object({
   deviceModel: z.string().nullable().optional(),
   osVersion: z.string().nullable().optional(),
   appVersion: z.string().nullable().optional(),
+  fcmToken: z.string().nullable().optional(),
 });
 
 export function createDeviceRelayRouter(

@@ -47,4 +47,36 @@ export function runMigrations(db: Database.Database): void {
     applyMigration1();
     console.log('[db] Applied migration 001_initial.sql');
   }
+
+  // Migration 2
+  if (!appliedSet.has(2)) {
+    let sql: string | null = null;
+    const candidatePaths = [
+      path.join(__dirname, 'migrations', '002_relay_fcm_token.sql'),
+      path.join(process.cwd(), 'src', 'db', 'migrations', '002_relay_fcm_token.sql'),
+      path.join(process.cwd(), 'migrations', '002_relay_fcm_token.sql'),
+    ];
+
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        sql = fs.readFileSync(p, 'utf8');
+        break;
+      }
+    }
+
+    if (!sql) {
+      sql = `
+        ALTER TABLE channels ADD COLUMN fcm_token TEXT;
+        CREATE INDEX IF NOT EXISTS idx_channels_fcm_token ON channels(fcm_token);
+      `;
+    }
+
+    const applyMigration2 = db.transaction(() => {
+      db.exec(sql!);
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(2, Date.now());
+    });
+
+    applyMigration2();
+    console.log('[db] Applied migration 002_relay_fcm_token.sql');
+  }
 }

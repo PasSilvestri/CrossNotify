@@ -81,4 +81,12 @@ class AppPreferences @Inject constructor(
         if (storedDate != today) return 0
         return prefs.getInt(KEY_DAILY_SENT_PREFIX + channelId, 0)
     }
+
+    fun getRelayLastFcmToken(channelId: String): String? {
+        return prefs.getString("relay_fcm_token_$channelId", null)
+    }
+
+    fun setRelayLastFcmToken(channelId: String, token: String) {
+        prefs.edit().putString("relay_fcm_token_$channelId", token).apply()
+    }
 }

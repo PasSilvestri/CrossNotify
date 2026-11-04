@@ -99,9 +99,13 @@ export function createAdminChannelsRouter(
         return;
       }
 
-      const { activeSubscriberTokens } = channelService.revokeChannel(channelId);
-      if (activeSubscriberTokens.length > 0) {
-        pushService.sendChannelRevoked(channel, activeSubscriberTokens).catch((err) => {
+      const { activeSubscriberTokens, relayFcmToken } = channelService.revokeChannel(channelId);
+      const allTokens = [...activeSubscriberTokens];
+      if (relayFcmToken && !allTokens.includes(relayFcmToken)) {
+        allTokens.push(relayFcmToken);
+      }
+      if (allTokens.length > 0) {
+        pushService.sendChannelRevoked(channel, allTokens).catch((err) => {
           console.error('[channels] Error sending channel_revoked push:', err);
         });
       }

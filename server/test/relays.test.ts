@@ -307,4 +307,39 @@ describe('Relay Provisioning & Device Auth (Tests 5 & 6)', () => {
     expect(res.body.error).toBe('invalid_state');
     expect(res.body.state).toBe('NEEDS_FIREBASE');
   });
+
+  it('relay init stores fcm_token and revoking channel sends channel_revoked push to relay', async () => {
+    // 1. Create relay
+    const createRes = await request(testEnv.ctx.app)
+      .post('/admin/api/relays')
+      .set('Cookie', authCookie)
+      .send({ name: 'Relay Push Test' });
+    expect(createRes.status).toBe(201);
+    const channelId = createRes.body.channelId;
+    const relayKey = createRes.body.qrPayload.apiKey;
+
+    // 2. Init relay with fcmToken
+    const initRes = await request(testEnv.ctx.app)
+      .post('/api/v1/relay/init')
+      .set('Authorization', `Bearer ${relayKey}`)
+      .send({
+        deviceName: 'Pixel 9 Pro',
+        fcmToken: 'fcm_relay_token_123',
+      });
+    expect(initRes.status).toBe(200);
+
+    // Verify stored in DB
+    const channelInDb = testEnv.ctx.db.prepare('SELECT fcm_token FROM channels WHERE channel_id = ?').get(channelId) as { fcm_token: string };
+    expect(channelInDb.fcm_token).toBe('fcm_relay_token_123');
+
+    // 3. Revoke channel from admin
+    const revokeRes = await request(testEnv.ctx.app)
+      .delete(`/admin/api/channels/${channelId}`)
+      .set('Cookie', authCookie);
+    expect(revokeRes.status).toBe(200);
+
+    // 4. Verify push was dispatched containing relay token
+    expect(testEnv.mockPush.revokedCalls.length).toBe(1);
+    expect(testEnv.mockPush.revokedCalls[0].tokens).toContain('fcm_relay_token_123');
+  });
 });

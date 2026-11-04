@@ -16,6 +16,7 @@ export interface ChannelRow {
   relay_device_model: string | null;
   relay_os_version: string | null;
   relay_app_version: string | null;
+  fcm_token: string | null;
   created_at: number;
   pending_expires_at: number | null;
   activated_at: number | null;
@@ -162,6 +163,7 @@ export class ChannelService {
       deviceModel?: string;
       osVersion?: string;
       appVersion?: string;
+      fcmToken?: string;
     }
   ): {
     channelId: string;
@@ -190,7 +192,8 @@ export class ChannelService {
           relay_device_name = ?,
           relay_device_model = ?,
           relay_os_version = ?,
-          relay_app_version = ?
+          relay_app_version = ?,
+          fcm_token = ?
         WHERE channel_id = ?
       `).run(
         now,
@@ -199,6 +202,7 @@ export class ChannelService {
         deviceInfo.deviceModel || null,
         deviceInfo.osVersion || null,
         deviceInfo.appVersion || null,
+        deviceInfo.fcmToken || null,
         channel.channel_id
       );
     } else if (channel.status === 'active') {
@@ -209,7 +213,8 @@ export class ChannelService {
           relay_device_name = COALESCE(?, relay_device_name),
           relay_device_model = COALESCE(?, relay_device_model),
           relay_os_version = COALESCE(?, relay_os_version),
-          relay_app_version = COALESCE(?, relay_app_version)
+          relay_app_version = COALESCE(?, relay_app_version),
+          fcm_token = COALESCE(?, fcm_token)
         WHERE channel_id = ?
       `).run(
         now,
@@ -217,6 +222,7 @@ export class ChannelService {
         deviceInfo.deviceModel || null,
         deviceInfo.osVersion || null,
         deviceInfo.appVersion || null,
+        deviceInfo.fcmToken || null,
         channel.channel_id
       );
     }
@@ -247,10 +253,11 @@ export class ChannelService {
   updateRelay(
     channelId: string,
     updates: {
-      deviceName?: string;
-      deviceModel?: string;
-      osVersion?: string;
-      appVersion?: string;
+      deviceName?: string | null;
+      deviceModel?: string | null;
+      osVersion?: string | null;
+      appVersion?: string | null;
+      fcmToken?: string | null;
     }
   ): { channel: ChannelRow; previousDeviceName: string | null } {
     const channel = this.getChannelById(channelId);
@@ -276,6 +283,10 @@ export class ChannelService {
       updates.appVersion || null,
       channelId
     );
+
+    if (updates.fcmToken !== undefined) {
+      this.db.prepare('UPDATE channels SET fcm_token = ? WHERE channel_id = ?').run(updates.fcmToken, channelId);
+    }
 
     return { channel: this.getChannelById(channelId)!, previousDeviceName };
   }
@@ -373,7 +384,7 @@ export class ChannelService {
     return this.getChannelById(channelId)!;
   }
 
-  revokeChannel(channelId: string): { activeSubscriberTokens: string[] } {
+  revokeChannel(channelId: string): { activeSubscriberTokens: string[]; relayFcmToken: string | null } {
     const channel = this.getChannelById(channelId);
     if (!channel) {
       throw { status: 404, code: 'channel_not_found', message: 'Channel not found' };
@@ -386,7 +397,13 @@ export class ChannelService {
       WHERE channel_id = ? AND status = 'active' AND fcm_token IS NOT NULL
     `).all(channelId) as { fcm_token: string }[];
 
-    const activeSubscriberTokens = activeSubscribers.map((s) => s.fcm_token);
+    const activeSubscriberTokens = activeSubscribers
+      .map((s) => s.fcm_token)
+      .filter((t): t is string => !!t && !t.startsWith('fcm_pending_'));
+
+    const relayFcmToken = channel.fcm_token && !channel.fcm_token.startsWith('fcm_pending_')
+      ? channel.fcm_token
+      : null;
 
     this.db.transaction(() => {
       this.db.prepare(`
@@ -400,16 +417,38 @@ export class ChannelService {
       this.db.prepare('DELETE FROM notifications WHERE channel_id = ?').run(channelId);
     })();
 
-    return { activeSubscriberTokens };
+    return { activeSubscriberTokens, relayFcmToken };
   }
 
-  revokeAllChannels(): void {
+  revokeAllChannels(): { channelsToNotify: Array<{ channel: ChannelRow; tokens: string[] }> } {
     const now = Date.now();
+    const channels = this.db.prepare("SELECT * FROM channels WHERE status IN ('pending', 'active')").all() as ChannelRow[];
+    const channelsToNotify: Array<{ channel: ChannelRow; tokens: string[] }> = [];
+
+    for (const ch of channels) {
+      const activeSubs = this.db.prepare(`
+        SELECT fcm_token FROM subscribers
+        WHERE channel_id = ? AND status = 'active' AND fcm_token IS NOT NULL
+      `).all(ch.channel_id) as { fcm_token: string }[];
+      const tokens = activeSubs
+        .map((s) => s.fcm_token)
+        .filter((t): t is string => !!t && !t.startsWith('fcm_pending_'));
+
+      if (ch.fcm_token && !ch.fcm_token.startsWith('fcm_pending_') && !tokens.includes(ch.fcm_token)) {
+        tokens.push(ch.fcm_token);
+      }
+      if (tokens.length > 0) {
+        channelsToNotify.push({ channel: ch, tokens });
+      }
+    }
+
     this.db.transaction(() => {
       this.db.prepare(`UPDATE channels SET status = 'revoked', revoked_at = ? WHERE status IN ('pending', 'active')`).run(now);
       this.db.prepare(`UPDATE subscribers SET status = 'revoked', revoked_at = ? WHERE status IN ('pending', 'active')`).run(now);
       this.db.prepare('DELETE FROM notifications').run();
     })();
+
+    return { channelsToNotify };
   }
 
   updateLastSeen(channelId: string): void {

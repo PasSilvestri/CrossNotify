@@ -111,6 +111,13 @@ class MainViewModel @Inject constructor(
 
     init {
         loadInstalledApps()
+        syncRelayChannels()
+    }
+
+    fun syncRelayChannels() {
+        viewModelScope.launch {
+            repository.syncRelayChannelsStatus()
+        }
     }
 
     fun clearStatusMessage() {
