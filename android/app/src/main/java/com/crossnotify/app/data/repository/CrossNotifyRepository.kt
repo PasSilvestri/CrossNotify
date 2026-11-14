@@ -854,10 +854,19 @@ class CrossNotifyRepository @Inject constructor(
         appName: String?,
         relayTimestamp: Long,
         receivedAt: Long,
-        postLocalNotification: Boolean
+        postLocalNotification: Boolean,
+        updateSyncCursor: Boolean = true
     ): NotificationPlaintext? {
         val sub = subscriptionDao.getById(channelId) ?: return null
         if (sub.status != "active" || sub.e2eKeyEnc.isBlank()) return null
+
+        // Skip redundant Keystore unwrap + AES-GCM decryption if already stored locally
+        if (inboxDao.getById(notificationId) != null) {
+            if (updateSyncCursor && receivedAt > 0L) {
+                subscriptionDao.updateLastReceivedAt(channelId, receivedAt)
+            }
+            return null
+        }
 
         val e2eKey = runCatching { cryptoManager.unwrapBytes(sub.e2eKeyEnc) }.getOrNull() ?: return null
         val plaintext = try {
@@ -877,7 +886,6 @@ class CrossNotifyRepository @Inject constructor(
         } ?: return null
 
         val originId = plaintext.origin.id.ifBlank { notificationId }
-        val alreadyInInbox = inboxDao.getById(notificationId) != null
         val alreadySeenOrigin = seenOriginDao.hasSeen(originId)
 
         val inboxEntity = InboxEntity(
@@ -893,10 +901,12 @@ class CrossNotifyRepository @Inject constructor(
         )
 
         val insertedRowId = inboxDao.insertIgnore(inboxEntity)
-        subscriptionDao.updateLastReceivedAt(channelId, receivedAt)
+        if (updateSyncCursor && receivedAt > 0L) {
+            subscriptionDao.updateLastReceivedAt(channelId, receivedAt)
+        }
         seenOriginDao.markSeen(SeenOriginEntity(originId = originId, seenAt = System.currentTimeMillis()))
 
-        val isNewMessage = insertedRowId != -1L && !alreadyInInbox && !alreadySeenOrigin
+        val isNewMessage = insertedRowId != -1L && !alreadySeenOrigin
         if (isNewMessage) {
             if (postLocalNotification) {
                 notificationHelper.postDecryptedNotification(sub, plaintext)
@@ -999,7 +1009,8 @@ class CrossNotifyRepository @Inject constructor(
             appName = remoteDto.appName,
             relayTimestamp = remoteDto.timestamp ?: remoteDto.receivedAt,
             receivedAt = remoteDto.receivedAt,
-            postLocalNotification = postLocalNotification
+            postLocalNotification = postLocalNotification,
+            updateSyncCursor = false
         ) ?: throw IllegalStateException("Failed to decrypt notification payload")
 
         if (markAsRead) {
@@ -1042,11 +1053,11 @@ class CrossNotifyRepository @Inject constructor(
      * Synchronizes missed notifications for all active subscriptions by paging through
      * recent server records since the last known timestamp.
      */
-    suspend fun syncCatchUpAllSubscriptions(): Boolean {
+    suspend fun syncCatchUpAllSubscriptions(fromBeginning: Boolean = false): Boolean {
         val activeSubs = subscriptionDao.getActive()
         var allSucceeded = true
         for (sub in activeSubs) {
-            val ok = syncCatchUpForSubscription(sub.channelId)
+            val ok = syncCatchUpForSubscription(sub.channelId, fromBeginning = fromBeginning)
             if (!ok) allSucceeded = false
         }
         // Prune deduplication records older than 7 days
@@ -1054,7 +1065,10 @@ class CrossNotifyRepository @Inject constructor(
         return allSucceeded
     }
 
-    suspend fun syncCatchUpForSubscription(channelId: String): Boolean {
+    suspend fun syncCatchUpForSubscription(
+        channelId: String,
+        fromBeginning: Boolean = false
+    ): Boolean {
         val sub = subscriptionDao.getById(channelId) ?: return true
         if (sub.status != "active" || sub.apiKeyEnc.isBlank()) return true
         val server = serverDao.getById(sub.serverId) ?: return true
@@ -1063,7 +1077,7 @@ class CrossNotifyRepository @Inject constructor(
         val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
         val authHeader = apiClient.bearerHeader(subApiKey)
 
-        var since = sub.lastReceivedAt
+        var since = if (fromBeginning) 0L else sub.lastReceivedAt
         var safetyPages = 0
 
         while (safetyPages < 20) {

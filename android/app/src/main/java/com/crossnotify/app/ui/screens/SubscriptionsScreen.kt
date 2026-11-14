@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,6 +73,17 @@ fun SubscriptionsScreen(
 
     var selectedSubscriptionId by remember { mutableStateOf<String?>(null) }
     val selectedSubscription = subscriptions.firstOrNull { it.channelId == selectedSubscriptionId }
+
+    // Keep unread counts and channel inbox up to date when viewing subscriptions
+    LaunchedEffect(Unit) {
+        viewModel.syncInboxSilently(fromBeginning = true)
+    }
+
+    LaunchedEffect(selectedSubscriptionId) {
+        selectedSubscriptionId?.let { channelId ->
+            viewModel.syncInboxSilently(channelId = channelId, fromBeginning = true)
+        }
+    }
 
     if (selectedSubscription != null) {
         val server = servers.firstOrNull { it.id == selectedSubscription.serverId }

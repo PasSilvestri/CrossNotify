@@ -30,6 +30,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -40,6 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,9 +66,15 @@ import java.util.Date
 fun InboxScreen(viewModel: MainViewModel) {
     val inboxItems by viewModel.decryptedInbox.collectAsState()
     val subscriptions by viewModel.subscriptions.collectAsState()
+    val isSyncing by viewModel.isSyncingInbox.collectAsState()
 
     var selectedChannelFilter by remember { mutableStateOf<String?>(null) }
     var selectedItem by remember { mutableStateOf<DecryptedInboxItem?>(null) }
+
+    // Download and decrypt all notifications when entering the history page or switching channel filter
+    LaunchedEffect(selectedChannelFilter) {
+        viewModel.syncInboxSilently(channelId = selectedChannelFilter, fromBeginning = true)
+    }
 
     val filteredItems = remember(inboxItems, selectedChannelFilter) {
         if (selectedChannelFilter == null) {
@@ -97,8 +105,17 @@ fun InboxScreen(viewModel: MainViewModel) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.syncCatchUpNow() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Sync catch-up")
+                    if (isSyncing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp)
+                                .size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        IconButton(onClick = { viewModel.syncCatchUpNow() }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Sync catch-up")
+                        }
                     }
                     if (selectedChannelFilter != null) {
                         IconButton(

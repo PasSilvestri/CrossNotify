@@ -78,7 +78,8 @@ class CrossNotifyMessagingService : FirebaseMessagingService() {
                             appName = appName,
                             relayTimestamp = ts,
                             receivedAt = ts,
-                            postLocalNotification = true
+                            postLocalNotification = true,
+                            updateSyncCursor = false
                         )
                     } else {
                         // Either oversize payload (`fetch == "1"`) or foreground battery_saver notification message

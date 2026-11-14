@@ -106,6 +106,9 @@ class MainViewModel @Inject constructor(
     private val _isBusy = MutableStateFlow(false)
     val isBusy: StateFlow<Boolean> = _isBusy.asStateFlow()
 
+    private val _isSyncingInbox = MutableStateFlow(false)
+    val isSyncingInbox: StateFlow<Boolean> = _isSyncingInbox.asStateFlow()
+
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
 
@@ -379,9 +382,30 @@ class MainViewModel @Inject constructor(
     fun syncCatchUpNow() {
         viewModelScope.launch {
             _isBusy.value = true
-            val ok = repository.syncCatchUpAllSubscriptions()
+            _isSyncingInbox.value = true
+            val ok = repository.syncCatchUpAllSubscriptions(fromBeginning = true)
+            _isSyncingInbox.value = false
             _isBusy.value = false
             _statusMessage.value = if (ok) "Inbox synchronized." else "Sync completed with warnings."
+        }
+    }
+
+    /**
+     * Silently downloads and decrypts notifications for [channelId] (or all active subscriptions
+     * when [channelId] is null) without blocking the UI or showing a status snackbar.
+     */
+    fun syncInboxSilently(channelId: String? = null, fromBeginning: Boolean = true) {
+        viewModelScope.launch {
+            _isSyncingInbox.value = true
+            try {
+                if (channelId != null) {
+                    repository.syncCatchUpForSubscription(channelId, fromBeginning = fromBeginning)
+                } else {
+                    repository.syncCatchUpAllSubscriptions(fromBeginning = fromBeginning)
+                }
+            } finally {
+                _isSyncingInbox.value = false
+            }
         }
     }
 
