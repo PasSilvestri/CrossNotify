@@ -12,6 +12,7 @@ import com.crossnotify.app.data.db.RelayChannelEntity
 import com.crossnotify.app.data.db.ServerEntity
 import com.crossnotify.app.data.db.SubscriptionEntity
 import com.crossnotify.app.data.prefs.AppPreferences
+import com.crossnotify.app.data.prefs.SilencedAppRule
 import com.crossnotify.app.data.repository.CrossNotifyRepository
 import com.crossnotify.app.data.repository.DecryptedInboxItem
 import com.crossnotify.app.qr.CnRelayQrPayload
@@ -90,6 +91,7 @@ class MainViewModel @Inject constructor(
 
     val deviceName: StateFlow<String> = appPreferences.deviceName
     val allowInsecureHttpByDefault: StateFlow<Boolean> = appPreferences.allowInsecureHttpByDefault
+    val silenceVersion: StateFlow<Int> = appPreferences.silenceVersion
 
     private val _installedApps = MutableStateFlow<List<InstalledAppInfo>>(emptyList())
     val installedApps: StateFlow<List<InstalledAppInfo>> = _installedApps.asStateFlow()
@@ -439,6 +441,74 @@ class MainViewModel @Inject constructor(
 
     fun updateAllowInsecureHttpByDefault(allow: Boolean) {
         appPreferences.setAllowInsecureHttpByDefault(allow)
+    }
+
+    fun getChannelSilenceUntil(channelId: String): Long? =
+        appPreferences.getChannelSilenceUntil(channelId)
+
+    fun getSilencedAppsForChannel(channelId: String): List<SilencedAppRule> =
+        appPreferences.getSilencedAppsForChannel(channelId)
+
+    fun silenceChannel(channelId: String, durationMs: Long) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            runCatching {
+                repository.setChannelSilence(channelId, durationMs)
+            }.onSuccess {
+                _statusMessage.value = "Channel notifications silenced."
+            }.onFailure { err ->
+                _statusMessage.value = "Failed to silence channel: ${err.message}"
+            }
+            _isBusy.value = false
+        }
+    }
+
+    fun unsilenceChannel(channelId: String) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            runCatching {
+                repository.clearChannelSilence(channelId)
+            }.onSuccess {
+                _statusMessage.value = "Channel notifications unsilenced."
+            }.onFailure { err ->
+                _statusMessage.value = "Failed to unsilence channel: ${err.message}"
+            }
+            _isBusy.value = false
+        }
+    }
+
+    fun silenceApp(channelId: String, appIdentifier: String, appLabel: String, durationMs: Long) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            runCatching {
+                repository.setAppSilence(channelId, appLabel.ifBlank { appIdentifier }, durationMs)
+            }.onSuccess {
+                _statusMessage.value = "Silenced notifications from $appLabel."
+            }.onFailure { err ->
+                _statusMessage.value = "Failed to silence app: ${err.message}"
+            }
+            _isBusy.value = false
+        }
+    }
+
+    fun unsilenceApp(channelId: String, appIdentifier: String) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            runCatching {
+                repository.clearAppSilence(channelId, appIdentifier)
+            }.onSuccess {
+                _statusMessage.value = "Unsilenced app notifications."
+            }.onFailure { err ->
+                _statusMessage.value = "Failed to unsilence app: ${err.message}"
+            }
+            _isBusy.value = false
+        }
+    }
+
+    fun refreshSilences(channelId: String) {
+        viewModelScope.launch {
+            repository.refreshSubscriberSilences(channelId)
+        }
     }
 
     fun refreshFcmTokensNow() {

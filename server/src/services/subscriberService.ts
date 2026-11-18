@@ -251,4 +251,101 @@ export class SubscriberService {
       WHERE channel_id = ? AND status = 'active'
     `).all(channelId) as SubscriberRow[];
   }
+
+  setSilence(
+    subscriberId: string,
+    channelId: string,
+    input: { appName?: string | null; durationMs?: number; silencedUntil?: number }
+  ): { appName: string | null; silencedUntil: number } {
+    const now = Date.now();
+    const normalizedApp = input.appName?.trim() || '';
+    const silencedUntil = input.durationMs
+      ? now + input.durationMs
+      : input.silencedUntil ?? 0;
+
+    if (silencedUntil <= now) {
+      throw { status: 400, code: 'invalid_silence_duration', message: 'Silence expiration must be in the future' };
+    }
+
+    this.db.prepare(`
+      INSERT INTO subscriber_silences (
+        subscriber_id, channel_id, app_name, silenced_until, created_at
+      ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(subscriber_id, app_name) DO UPDATE SET
+        silenced_until = excluded.silenced_until,
+        created_at = excluded.created_at
+    `).run(subscriberId, channelId, normalizedApp, silencedUntil, now);
+
+    return {
+      appName: normalizedApp || null,
+      silencedUntil,
+    };
+  }
+
+  clearSilence(
+    subscriberId: string,
+    options?: { appName?: string | null; all?: boolean }
+  ): void {
+    if (options?.all) {
+      this.db.prepare('DELETE FROM subscriber_silences WHERE subscriber_id = ?').run(subscriberId);
+      return;
+    }
+    const normalizedApp = options?.appName?.trim() || '';
+    if (normalizedApp) {
+      this.db.prepare(
+        'DELETE FROM subscriber_silences WHERE subscriber_id = ? AND LOWER(app_name) = LOWER(?)'
+      ).run(subscriberId, normalizedApp);
+    } else {
+      this.db.prepare(
+        "DELETE FROM subscriber_silences WHERE subscriber_id = ? AND app_name = ''"
+      ).run(subscriberId);
+    }
+  }
+
+  getSilences(subscriberId: string): {
+    channelSilencedUntil: number | null;
+    silencedApps: Array<{ appName: string; silencedUntil: number }>;
+  } {
+    const now = Date.now();
+    this.db.prepare('DELETE FROM subscriber_silences WHERE subscriber_id = ? AND silenced_until <= ?').run(
+      subscriberId,
+      now
+    );
+
+    const rows = this.db.prepare(`
+      SELECT app_name, silenced_until
+      FROM subscriber_silences
+      WHERE subscriber_id = ? AND silenced_until > ?
+      ORDER BY silenced_until ASC
+    `).all(subscriberId, now) as Array<{ app_name: string; silenced_until: number }>;
+
+    let channelSilencedUntil: number | null = null;
+    const silencedApps: Array<{ appName: string; silencedUntil: number }> = [];
+
+    for (const row of rows) {
+      if (row.app_name === '') {
+        channelSilencedUntil = row.silenced_until;
+      } else {
+        silencedApps.push({ appName: row.app_name, silencedUntil: row.silenced_until });
+      }
+    }
+
+    return { channelSilencedUntil, silencedApps };
+  }
+
+  isSubscriberSilenced(subscriberId: string, appName?: string | null): boolean {
+    const now = Date.now();
+    const rows = this.db.prepare(`
+      SELECT app_name FROM subscriber_silences
+      WHERE subscriber_id = ? AND silenced_until > ?
+    `).all(subscriberId, now) as Array<{ app_name: string }>;
+
+    if (rows.length === 0) return false;
+
+    const normalizedApp = appName?.trim().toLowerCase() || '';
+    return rows.some((row) => {
+      if (row.app_name === '') return true;
+      return normalizedApp.length > 0 && row.app_name.toLowerCase() === normalizedApp;
+    });
+  }
 }

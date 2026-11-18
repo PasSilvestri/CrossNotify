@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,11 +19,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -31,11 +38,13 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -53,12 +62,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.crossnotify.app.data.api.ConnectionTestResult
 import com.crossnotify.app.data.db.RelayChannelEntity
 import com.crossnotify.app.data.db.SubscriptionEntity
+import com.crossnotify.app.data.prefs.SilencedAppRule
 import com.crossnotify.app.ui.MainViewModel
 import com.crossnotify.app.ui.theme.parseHexColor
+import java.text.DateFormat
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +83,7 @@ fun SubscriptionsScreen(
     val servers by viewModel.servers.collectAsState()
     val relayChannels by viewModel.relayChannels.collectAsState()
     val inboxItems by viewModel.decryptedInbox.collectAsState()
+    val silenceVersion by viewModel.silenceVersion.collectAsState()
 
     var selectedSubscriptionId by remember { mutableStateOf<String?>(null) }
     val selectedSubscription = subscriptions.firstOrNull { it.channelId == selectedSubscriptionId }
@@ -82,16 +96,41 @@ fun SubscriptionsScreen(
     LaunchedEffect(selectedSubscriptionId) {
         selectedSubscriptionId?.let { channelId ->
             viewModel.syncInboxSilently(channelId = channelId, fromBeginning = true)
+            viewModel.refreshSilences(channelId)
         }
     }
 
     if (selectedSubscription != null) {
         val server = servers.firstOrNull { it.id == selectedSubscription.serverId }
+        val knownApps = remember(inboxItems, selectedSubscription.channelId) {
+            inboxItems
+                .asSequence()
+                .filter { it.entity.channelId == selectedSubscription.channelId }
+                .mapNotNull { item ->
+                    val label = item.plaintext?.app?.trim()
+                        ?.ifEmpty { item.entity.appName?.trim().orEmpty() }
+                        ?: item.entity.appName?.trim().orEmpty()
+                    if (label.isEmpty()) null else label to label
+                }
+                .distinctBy { it.first.lowercase() }
+                .sortedBy { it.second.lowercase() }
+                .toList()
+        }
+        val channelSilencedUntil = remember(selectedSubscription.channelId, silenceVersion) {
+            viewModel.getChannelSilenceUntil(selectedSubscription.channelId)
+        }
+        val silencedApps = remember(selectedSubscription.channelId, silenceVersion) {
+            viewModel.getSilencedAppsForChannel(selectedSubscription.channelId)
+        }
+
         SubscriptionDetailContent(
             subscription = selectedSubscription,
             serverName = server?.name ?: "Server",
             serverUrl = server?.url ?: "",
             availableRelayChannels = relayChannels.filter { it.active && it.channelId != selectedSubscription.channelId },
+            knownApps = knownApps,
+            channelSilencedUntil = channelSilencedUntil,
+            silencedApps = silencedApps,
             onBack = { selectedSubscriptionId = null },
             onTestConnection = { onResult ->
                 viewModel.testSubscriptionConnection(selectedSubscription.channelId, onResult)
@@ -101,6 +140,18 @@ fun SubscriptionsScreen(
             },
             onChangeForwarding = { targetRelayId ->
                 viewModel.setSubscriptionForwarding(selectedSubscription.channelId, targetRelayId)
+            },
+            onSilenceChannel = { durationMs ->
+                viewModel.silenceChannel(selectedSubscription.channelId, durationMs)
+            },
+            onSilenceApp = { appId, appLabel, durationMs ->
+                viewModel.silenceApp(selectedSubscription.channelId, appId, appLabel, durationMs)
+            },
+            onUnsilenceChannel = {
+                viewModel.unsilenceChannel(selectedSubscription.channelId)
+            },
+            onUnsilenceApp = { appId ->
+                viewModel.unsilenceApp(selectedSubscription.channelId, appId)
             },
             onUnsubscribe = {
                 viewModel.unsubscribe(selectedSubscription.channelId) {
@@ -196,6 +247,9 @@ fun SubscriptionsScreen(
                     val unreadCount = inboxItems.count {
                         it.entity.channelId == sub.channelId && it.entity.readAt == null
                     }
+                    val isChannelSilenced = remember(sub.channelId, silenceVersion) {
+                        viewModel.getChannelSilenceUntil(sub.channelId) != null
+                    }
 
                     Card(
                         modifier = Modifier
@@ -240,6 +294,19 @@ fun SubscriptionsScreen(
                                             style = MaterialTheme.typography.labelSmall,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
+                                    }
+                                    if (isChannelSilenced) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                                            shape = MaterialTheme.shapes.small
+                                        ) {
+                                            Text(
+                                                text = "SILENCED",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
                                     }
                                 }
                                 Text(
@@ -289,13 +356,21 @@ private fun SubscriptionDetailContent(
     serverName: String,
     serverUrl: String,
     availableRelayChannels: List<RelayChannelEntity>,
+    knownApps: List<Pair<String, String>>,
+    channelSilencedUntil: Long?,
+    silencedApps: List<SilencedAppRule>,
     onBack: () -> Unit,
     onTestConnection: ((ConnectionTestResult) -> Unit) -> Unit,
     onChangeDeliveryMode: (String) -> Unit,
     onChangeForwarding: (String?) -> Unit,
+    onSilenceChannel: (Long) -> Unit,
+    onSilenceApp: (String, String, Long) -> Unit,
+    onUnsilenceChannel: () -> Unit,
+    onUnsilenceApp: (String) -> Unit,
     onUnsubscribe: () -> Unit
 ) {
     var showUnsubscribeConfirm by remember { mutableStateOf(false) }
+    var showSilenceDialog by remember { mutableStateOf(false) }
     var isTestingConnection by remember { mutableStateOf(false) }
     var connectionTestResult by remember { mutableStateOf<ConnectionTestResult?>(null) }
 
@@ -534,6 +609,91 @@ private fun SubscriptionDetailContent(
             }
 
             item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Silence Notifications",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Temporarily mute local alerts from this relay or a specific app on it. Messages are still saved to your inbox.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        if (channelSilencedUntil != null) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.tertiaryContainer,
+                                shape = MaterialTheme.shapes.small,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "All notifications silenced until ${formatSilenceUntil(channelSilencedUntil)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    TextButton(onClick = onUnsilenceChannel) {
+                                        Text("Unsilence")
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        silencedApps.forEach { rule ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = MaterialTheme.shapes.small,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "${rule.appLabel} silenced until ${formatSilenceUntil(rule.silencedUntilMs)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { onUnsilenceApp(rule.appIdentifier) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Unsilence ${rule.appLabel}",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = { showSilenceDialog = true },
+                            enabled = subscription.status == "active"
+                        ) {
+                            Icon(Icons.Default.NotificationsOff, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Silence for...")
+                        }
+                    }
+                }
+            }
+
+            item {
                 Spacer(modifier = Modifier.height(12.dp))
                 OutlinedButton(
                     onClick = { showUnsubscribeConfirm = true },
@@ -548,6 +708,22 @@ private fun SubscriptionDetailContent(
                 }
             }
         }
+    }
+
+    if (showSilenceDialog) {
+        SilenceForDialog(
+            channelName = subscription.name,
+            knownApps = knownApps,
+            onDismiss = { showSilenceDialog = false },
+            onConfirmChannelSilence = { durationMs ->
+                showSilenceDialog = false
+                onSilenceChannel(durationMs)
+            },
+            onConfirmAppSilence = { appId, appLabel, durationMs ->
+                showSilenceDialog = false
+                onSilenceApp(appId, appLabel, durationMs)
+            }
+        )
     }
 
     if (showUnsubscribeConfirm) {
@@ -575,4 +751,193 @@ private fun SubscriptionDetailContent(
             }
         )
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SilenceForDialog(
+    channelName: String,
+    knownApps: List<Pair<String, String>>,
+    onDismiss: () -> Unit,
+    onConfirmChannelSilence: (Long) -> Unit,
+    onConfirmAppSilence: (String, String, Long) -> Unit
+) {
+    var silenceAll by remember { mutableStateOf(true) }
+    var selectedAppId by remember { mutableStateOf(knownApps.firstOrNull()?.first.orEmpty()) }
+    var customAppInput by remember { mutableStateOf("") }
+
+    val presets = listOf(
+        "1h" to 1L * 60L * 60L * 1000L,
+        "3h" to 3L * 60L * 60L * 1000L,
+        "5h" to 5L * 60L * 60L * 1000L,
+        "8h" to 8L * 60L * 60L * 1000L
+    )
+    var selectedPresetIndex by remember { mutableStateOf(0) } // 0..3 presets, 4 = custom
+    var customHoursText by remember { mutableStateOf("1") }
+    var customMinutesText by remember { mutableStateOf("0") }
+
+    val durationMs: Long = if (selectedPresetIndex in presets.indices) {
+        presets[selectedPresetIndex].second
+    } else {
+        val h = customHoursText.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        val m = customMinutesText.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        (h * 60L + m) * 60L * 1000L
+    }
+
+    val resolvedAppPair: Pair<String, String>? = if (silenceAll) {
+        null
+    } else if (customAppInput.isNotBlank()) {
+        val trimmed = customAppInput.trim()
+        trimmed to trimmed
+    } else if (selectedAppId.isNotBlank()) {
+        val label = knownApps.firstOrNull { it.first == selectedAppId }?.second ?: selectedAppId
+        selectedAppId to label
+    } else {
+        null
+    }
+
+    val canConfirm = durationMs > 0L && (silenceAll || resolvedAppPair != null)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Silence $channelName", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "What to silence",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { silenceAll = true }
+                ) {
+                    RadioButton(
+                        selected = silenceAll,
+                        onClick = { silenceAll = true }
+                    )
+                    Text("All notifications from $channelName")
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { silenceAll = false }
+                ) {
+                    RadioButton(
+                        selected = !silenceAll,
+                        onClick = { silenceAll = false }
+                    )
+                    Text("Specific app from $channelName")
+                }
+
+                if (!silenceAll) {
+                    if (knownApps.isNotEmpty()) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            knownApps.forEach { (appId, appLabel) ->
+                                FilterChip(
+                                    selected = customAppInput.isBlank() && selectedAppId == appId,
+                                    onClick = {
+                                        selectedAppId = appId
+                                        customAppInput = ""
+                                    },
+                                    label = { Text(appLabel) }
+                                )
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = customAppInput,
+                        onValueChange = { customAppInput = it },
+                        label = { Text("Or enter app / package name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Duration",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    presets.forEachIndexed { index, (label, _) ->
+                        FilterChip(
+                            selected = selectedPresetIndex == index,
+                            onClick = { selectedPresetIndex = index },
+                            label = { Text(label) }
+                        )
+                    }
+                    FilterChip(
+                        selected = selectedPresetIndex == presets.size,
+                        onClick = { selectedPresetIndex = presets.size },
+                        label = { Text("Custom") }
+                    )
+                }
+
+                if (selectedPresetIndex == presets.size) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = customHoursText,
+                            onValueChange = { input ->
+                                customHoursText = input.filter { it.isDigit() }.take(3)
+                            },
+                            label = { Text("Hours") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = customMinutesText,
+                            onValueChange = { input ->
+                                customMinutesText = input.filter { it.isDigit() }.take(3)
+                            },
+                            label = { Text("Minutes") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (silenceAll) {
+                        onConfirmChannelSilence(durationMs)
+                    } else if (resolvedAppPair != null) {
+                        onConfirmAppSilence(resolvedAppPair.first, resolvedAppPair.second, durationMs)
+                    }
+                },
+                enabled = canConfirm
+            ) {
+                Text("Silence")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+private fun formatSilenceUntil(timestampMs: Long): String {
+    return DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestampMs))
 }

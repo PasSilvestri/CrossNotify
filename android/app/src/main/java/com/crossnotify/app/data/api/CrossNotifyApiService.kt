@@ -90,4 +90,25 @@ interface CrossNotifyApiService {
         @Header("Authorization") authHeader: String,
         @Path("channelId") channelId: String
     ): Response<StatusOkResponse>
+
+    @GET("api/v1/channels/{channelId}/subscribers/self/silence")
+    suspend fun getSubscriberSilences(
+        @Header("Authorization") authHeader: String,
+        @Path("channelId") channelId: String
+    ): Response<SubscriberSilencesResponse>
+
+    @PUT("api/v1/channels/{channelId}/subscribers/self/silence")
+    suspend fun setSubscriberSilence(
+        @Header("Authorization") authHeader: String,
+        @Path("channelId") channelId: String,
+        @Body body: SubscriberSilenceRequest
+    ): Response<SubscriberSilenceResponse>
+
+    @DELETE("api/v1/channels/{channelId}/subscribers/self/silence")
+    suspend fun clearSubscriberSilence(
+        @Header("Authorization") authHeader: String,
+        @Path("channelId") channelId: String,
+        @Query("appName") appName: String? = null,
+        @Query("all") all: Boolean? = null
+    ): Response<StatusOkResponse>
 }

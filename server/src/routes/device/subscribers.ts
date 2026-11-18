@@ -27,6 +27,14 @@ const SubscriberUpdateSelfSchema = z.object({
   deliveryMode: z.enum(['battery_saver', 'immediate_preview']).nullable().optional(),
 });
 
+const SubscriberSilenceSchema = z.object({
+  appName: z.string().trim().max(200).nullable().optional(),
+  durationMs: z.number().int().positive().max(30 * 24 * 60 * 60 * 1000).optional(),
+  silencedUntil: z.number().int().positive().optional(),
+}).refine((data) => data.durationMs !== undefined || data.silencedUntil !== undefined, {
+  message: 'Either durationMs or silencedUntil must be provided',
+});
+
 export function createDeviceSubscribersRouter(
   subscriberService: SubscriberService,
   channelService: ChannelService,
@@ -95,6 +103,55 @@ export function createDeviceSubscribersRouter(
     (req: DeviceRequest, res, next) => {
       try {
         subscriberService.revokeSubscriber(String(req.params.channelId), req.subscriber!.subscriber_id);
+        res.json({ status: 'ok' });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // GET /api/v1/channels/:channelId/subscribers/self/silence (Subscriber gets active silences)
+  router.get(
+    '/channels/:channelId/subscribers/self/silence',
+    requireSubscriberKey(subscriberService, channelService),
+    (req: DeviceRequest, res, next) => {
+      try {
+        const result = subscriberService.getSilences(req.subscriber!.subscriber_id);
+        res.json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // PUT /api/v1/channels/:channelId/subscribers/self/silence (Subscriber silences channel or app)
+  router.put(
+    '/channels/:channelId/subscribers/self/silence',
+    requireSubscriberKey(subscriberService, channelService),
+    validateBody(SubscriberSilenceSchema),
+    (req: DeviceRequest, res, next) => {
+      try {
+        const result = subscriberService.setSilence(
+          req.subscriber!.subscriber_id,
+          req.subscriber!.channel_id,
+          req.body
+        );
+        res.json({ status: 'ok', ...result });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // DELETE /api/v1/channels/:channelId/subscribers/self/silence (Subscriber clears silence)
+  router.delete(
+    '/channels/:channelId/subscribers/self/silence',
+    requireSubscriberKey(subscriberService, channelService),
+    (req: DeviceRequest, res, next) => {
+      try {
+        const appName = typeof req.query.appName === 'string' ? req.query.appName : null;
+        const all = req.query.all === 'true';
+        subscriberService.clearSilence(req.subscriber!.subscriber_id, { appName, all });
         res.json({ status: 'ok' });
       } catch (err) {
         next(err);

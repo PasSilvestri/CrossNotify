@@ -46,6 +46,10 @@ export class FcmPushService implements PushService {
     const tokens: string[] = [];
 
     for (const sub of validSubscribers) {
+      if (this.subscriberService.isSubscriberSilenced(sub.subscriber_id, n.app_name)) {
+        continue;
+      }
+
       const token = sub.fcm_token!;
       tokens.push(token);
 

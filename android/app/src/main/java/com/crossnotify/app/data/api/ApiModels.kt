@@ -146,6 +146,32 @@ data class StatusOkResponse(
 )
 
 @Serializable
+data class SubscriberSilenceRequest(
+    val appName: String? = null,
+    val durationMs: Long? = null,
+    val silencedUntil: Long? = null
+)
+
+@Serializable
+data class SubscriberSilenceResponse(
+    val status: String = "ok",
+    val appName: String? = null,
+    val silencedUntil: Long = 0L
+)
+
+@Serializable
+data class SilencedAppDto(
+    val appName: String,
+    val silencedUntil: Long
+)
+
+@Serializable
+data class SubscriberSilencesResponse(
+    val channelSilencedUntil: Long? = null,
+    val silencedApps: List<SilencedAppDto> = emptyList()
+)
+
+@Serializable
 data class ApiErrorDto(
     val error: String = "unknown_error",
     val detail: String? = null,

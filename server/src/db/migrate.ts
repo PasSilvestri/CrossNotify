@@ -79,4 +79,45 @@ export function runMigrations(db: Database.Database): void {
     applyMigration2();
     console.log('[db] Applied migration 002_relay_fcm_token.sql');
   }
+
+  // Migration 3
+  if (!appliedSet.has(3)) {
+    let sql: string | null = null;
+    const candidatePaths = [
+      path.join(__dirname, 'migrations', '003_subscriber_silences.sql'),
+      path.join(process.cwd(), 'src', 'db', 'migrations', '003_subscriber_silences.sql'),
+      path.join(process.cwd(), 'migrations', '003_subscriber_silences.sql'),
+    ];
+
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        sql = fs.readFileSync(p, 'utf8');
+        break;
+      }
+    }
+
+    if (!sql) {
+      sql = `
+        CREATE TABLE IF NOT EXISTS subscriber_silences (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          subscriber_id  TEXT NOT NULL REFERENCES subscribers(subscriber_id) ON DELETE CASCADE,
+          channel_id     TEXT NOT NULL REFERENCES channels(channel_id) ON DELETE CASCADE,
+          app_name       TEXT NOT NULL DEFAULT '',
+          silenced_until INTEGER NOT NULL,
+          created_at     INTEGER NOT NULL,
+          UNIQUE(subscriber_id, app_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_subscriber_silences_sub ON subscriber_silences(subscriber_id);
+        CREATE INDEX IF NOT EXISTS idx_subscriber_silences_until ON subscriber_silences(silenced_until);
+      `;
+    }
+
+    const applyMigration3 = db.transaction(() => {
+      db.exec(sql!);
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(3, Date.now());
+    });
+
+    applyMigration3();
+    console.log('[db] Applied migration 003_subscriber_silences.sql');
+  }
 }

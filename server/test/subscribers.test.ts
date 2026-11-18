@@ -251,4 +251,64 @@ describe('Subscriber Key Engine & Individual Revocation (Test 9)', () => {
       .set('Authorization', `Bearer ${subB.body.apiKey}`);
     expect(checkB.status).toBe(200);
   });
+
+  it('subscriber can silence channel or specific app and clear silences', async () => {
+    const mintRes = await request(testEnv.ctx.app)
+      .post(`/api/v1/channels/${channelId}/subscribers/keys`)
+      .set('Authorization', `Bearer ${relayKey}`);
+    const subKey = mintRes.body.apiKey;
+    const subId = mintRes.body.subscriberId;
+
+    await request(testEnv.ctx.app)
+      .post(`/api/v1/channels/${channelId}/subscribers/init`)
+      .set('Authorization', `Bearer ${subKey}`)
+      .send({ fcmToken: 'fcm_silence_test', deviceName: 'Phone', deliveryMode: 'battery_saver' });
+
+    // Silence specific app "WhatsApp" for 1 hour
+    const appSilenceRes = await request(testEnv.ctx.app)
+      .put(`/api/v1/channels/${channelId}/subscribers/self/silence`)
+      .set('Authorization', `Bearer ${subKey}`)
+      .send({ appName: 'WhatsApp', durationMs: 3600_000 });
+    expect(appSilenceRes.status).toBe(200);
+    expect(appSilenceRes.body.appName).toBe('WhatsApp');
+    expect(appSilenceRes.body.silencedUntil).toBeGreaterThan(Date.now());
+
+    expect(testEnv.ctx.services.subscriberService.isSubscriberSilenced(subId, 'whatsapp')).toBe(true);
+    expect(testEnv.ctx.services.subscriberService.isSubscriberSilenced(subId, 'Telegram')).toBe(false);
+
+    // Silence entire channel for 2 hours
+    const chanSilenceRes = await request(testEnv.ctx.app)
+      .put(`/api/v1/channels/${channelId}/subscribers/self/silence`)
+      .set('Authorization', `Bearer ${subKey}`)
+      .send({ durationMs: 7200_000 });
+    expect(chanSilenceRes.status).toBe(200);
+    expect(chanSilenceRes.body.appName).toBeNull();
+
+    expect(testEnv.ctx.services.subscriberService.isSubscriberSilenced(subId, 'Telegram')).toBe(true);
+    expect(testEnv.ctx.services.subscriberService.isSubscriberSilenced(subId, null)).toBe(true);
+
+    // GET silences
+    const listRes = await request(testEnv.ctx.app)
+      .get(`/api/v1/channels/${channelId}/subscribers/self/silence`)
+      .set('Authorization', `Bearer ${subKey}`);
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.channelSilencedUntil).toBeGreaterThan(Date.now());
+    expect(listRes.body.silencedApps).toHaveLength(1);
+    expect(listRes.body.silencedApps[0].appName).toBe('WhatsApp');
+
+    // Clear channel-wide silence
+    const delChanRes = await request(testEnv.ctx.app)
+      .delete(`/api/v1/channels/${channelId}/subscribers/self/silence`)
+      .set('Authorization', `Bearer ${subKey}`);
+    expect(delChanRes.status).toBe(200);
+    expect(testEnv.ctx.services.subscriberService.isSubscriberSilenced(subId, 'Telegram')).toBe(false);
+    expect(testEnv.ctx.services.subscriberService.isSubscriberSilenced(subId, 'WhatsApp')).toBe(true);
+
+    // Clear app-specific silence
+    const delAppRes = await request(testEnv.ctx.app)
+      .delete(`/api/v1/channels/${channelId}/subscribers/self/silence?appName=whatsapp`)
+      .set('Authorization', `Bearer ${subKey}`);
+    expect(delAppRes.status).toBe(200);
+    expect(testEnv.ctx.services.subscriberService.isSubscriberSilenced(subId, 'WhatsApp')).toBe(false);
+  });
 });

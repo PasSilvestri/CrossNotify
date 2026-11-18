@@ -22,11 +22,13 @@ import com.crossnotify.app.data.api.ChannelInfoResponse
 import com.crossnotify.app.data.api.ConnectionTestResult
 import com.crossnotify.app.data.api.CrossNotifyApiClient
 import com.crossnotify.app.data.api.CrossNotifyApiException
+import com.crossnotify.app.data.api.CrossNotifyApiService
 import com.crossnotify.app.data.api.PublishNotificationRequest
 import com.crossnotify.app.data.api.RelayInitRequest
 import com.crossnotify.app.data.api.RelayUpdateRequest
 import com.crossnotify.app.data.api.RemoteNotificationDto
 import com.crossnotify.app.data.api.SubscriberInitRequest
+import com.crossnotify.app.data.api.SubscriberSilenceRequest
 import com.crossnotify.app.data.api.SubscriberUpdateSelfRequest
 import com.crossnotify.app.data.db.InboxDao
 import com.crossnotify.app.data.db.InboxEntity
@@ -658,6 +660,90 @@ class CrossNotifyRepository @Inject constructor(
         subscriptionDao.updateForwardToRelayChannel(channelId, targetRelayChannelId)
     }
 
+    suspend fun setChannelSilence(channelId: String, durationMs: Long): Long {
+        val (service, authHeader) = subscriberApiContext(channelId)
+        val res = apiClient.unwrapResponse(
+            service.setSubscriberSilence(
+                authHeader = authHeader,
+                channelId = channelId,
+                body = SubscriberSilenceRequest(appName = null, durationMs = durationMs)
+            )
+        )
+        val effectiveDuration = (res.silencedUntil - System.currentTimeMillis()).coerceAtLeast(1L)
+        appPreferences.setChannelSilence(channelId, effectiveDuration)
+        return res.silencedUntil
+    }
+
+    suspend fun clearChannelSilence(channelId: String) {
+        val (service, authHeader) = subscriberApiContext(channelId)
+        apiClient.unwrapResponse(
+            service.clearSubscriberSilence(
+                authHeader = authHeader,
+                channelId = channelId,
+                appName = null
+            )
+        )
+        appPreferences.clearChannelSilence(channelId)
+    }
+
+    suspend fun setAppSilence(channelId: String, appName: String, durationMs: Long): Long {
+        val (service, authHeader) = subscriberApiContext(channelId)
+        val res = apiClient.unwrapResponse(
+            service.setSubscriberSilence(
+                authHeader = authHeader,
+                channelId = channelId,
+                body = SubscriberSilenceRequest(appName = appName, durationMs = durationMs)
+            )
+        )
+        val effectiveDuration = (res.silencedUntil - System.currentTimeMillis()).coerceAtLeast(1L)
+        appPreferences.setAppSilence(channelId, appName, appName, effectiveDuration)
+        return res.silencedUntil
+    }
+
+    suspend fun clearAppSilence(channelId: String, appName: String) {
+        val (service, authHeader) = subscriberApiContext(channelId)
+        apiClient.unwrapResponse(
+            service.clearSubscriberSilence(
+                authHeader = authHeader,
+                channelId = channelId,
+                appName = appName
+            )
+        )
+        appPreferences.clearAppSilence(channelId, appName)
+    }
+
+    suspend fun refreshSubscriberSilences(channelId: String) {
+        val (service, authHeader) = runCatching { subscriberApiContext(channelId) }.getOrNull() ?: return
+        val res = runCatching {
+            apiClient.unwrapResponse(service.getSubscriberSilences(authHeader, channelId))
+        }.getOrNull() ?: return
+
+        val now = System.currentTimeMillis()
+        appPreferences.clearAllSilencesForChannel(channelId)
+        val channelUntil = res.channelSilencedUntil
+        if (channelUntil != null && channelUntil > now) {
+            appPreferences.setChannelSilence(channelId, channelUntil - now)
+        }
+        for (app in res.silencedApps) {
+            if (app.silencedUntil > now) {
+                appPreferences.setAppSilence(channelId, app.appName, app.appName, app.silencedUntil - now)
+            }
+        }
+    }
+
+    private suspend fun subscriberApiContext(channelId: String): Pair<CrossNotifyApiService, String> {
+        val sub = subscriptionDao.getById(channelId)
+            ?: throw IllegalStateException("Subscription not found")
+        if (sub.status != "active" || sub.apiKeyEnc.isBlank()) {
+            throw IllegalStateException("Subscription is not active")
+        }
+        val server = serverDao.getById(sub.serverId)
+            ?: throw IllegalStateException("Server not found")
+        val subApiKey = cryptoManager.unwrapString(sub.apiKeyEnc)
+        val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+        return service to apiClient.bearerHeader(subApiKey)
+    }
+
     /**
      * Unsubscribes from a channel (`DELETE /api/v1/channels/:id/subscribers/self`), wipes keys and inbox.
      */
@@ -674,6 +760,7 @@ class CrossNotifyRepository @Inject constructor(
             }
         }
         notificationHelper.deleteSubscriptionChannel(channelId)
+        appPreferences.clearAllSilencesForChannel(channelId)
         inboxDao.deleteByChannel(channelId)
         subscriptionDao.deleteById(channelId)
         serverDao.deleteOrphanedServers()
