@@ -1,3 +1,5 @@
+export const DASHBOARD_VERSION = '1.0.1';
+
 export const LIMITS = {
   CHANNEL_NAME_MIN: 1,
   CHANNEL_NAME_MAX: 40,

@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.js';
 import { useSetupStore } from '../stores/setup.js';
 import { apiRequest, formatApiError } from '../api/client.js';
-import { LIMITS } from '../constants.js';
+import { DASHBOARD_VERSION, LIMITS } from '../constants.js';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -129,9 +129,11 @@ onMounted(loadSettings);
           <h1 class="page-title">Settings</h1>
           <p class="page-subtitle">Configure server properties and admin credentials</p>
         </div>
-        <div v-if="serverVersion" class="server-version-badge">
+        <div class="server-version-badge">
           <span class="version-dot"></span>
-          <span class="version-text">Server v{{ serverVersion }}</span>
+          <span class="version-text">
+            <template v-if="serverVersion">Server v{{ serverVersion }} · </template>Dashboard v{{ DASHBOARD_VERSION }}
+          </span>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '1.1.2';
+export const SERVER_VERSION = '1.1.0';
 export const ANDROID_PACKAGE_NAME = 'com.crossnotify.app';
 
 export const LIMITS = {
