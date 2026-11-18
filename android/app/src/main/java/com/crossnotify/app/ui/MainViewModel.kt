@@ -73,25 +73,33 @@ class MainViewModel @Inject constructor(
 
     val decryptedInbox: StateFlow<List<DecryptedInboxItem>> = combine(
         repository.observeInbox(),
-        repository.observeSubscriptions()
-    ) { inboxList, subList ->
+        repository.observeSubscriptions(),
+        appPreferences.retentionVersion
+    ) { inboxList, subList, _ ->
         val subById = subList.associateBy { it.channelId }
+        val now = System.currentTimeMillis()
         withContext(Dispatchers.Default) {
-            inboxList.map { entity ->
-                val sub = subById[entity.channelId]
-                val plaintext = repository.decryptInboxEntity(entity, sub)
-                DecryptedInboxItem(
-                    entity = entity,
-                    subscription = sub,
-                    plaintext = plaintext
-                )
-            }
+            inboxList
+                .filter { entity ->
+                    val retentionMs = appPreferences.getChannelRetentionMs(entity.channelId)
+                    retentionMs <= 0L || entity.receivedAt >= now - retentionMs
+                }
+                .map { entity ->
+                    val sub = subById[entity.channelId]
+                    val plaintext = repository.decryptInboxEntity(entity, sub)
+                    DecryptedInboxItem(
+                        entity = entity,
+                        subscription = sub,
+                        plaintext = plaintext
+                    )
+                }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val deviceName: StateFlow<String> = appPreferences.deviceName
     val allowInsecureHttpByDefault: StateFlow<Boolean> = appPreferences.allowInsecureHttpByDefault
     val silenceVersion: StateFlow<Int> = appPreferences.silenceVersion
+    val retentionVersion: StateFlow<Int> = appPreferences.retentionVersion
 
     private val _installedApps = MutableStateFlow<List<InstalledAppInfo>>(emptyList())
     val installedApps: StateFlow<List<InstalledAppInfo>> = _installedApps.asStateFlow()
@@ -117,6 +125,9 @@ class MainViewModel @Inject constructor(
     init {
         loadInstalledApps()
         syncRelayChannels()
+        viewModelScope.launch {
+            repository.pruneExpiredInboxNotifications()
+        }
     }
 
     fun syncRelayChannels() {
@@ -508,6 +519,21 @@ class MainViewModel @Inject constructor(
     fun refreshSilences(channelId: String) {
         viewModelScope.launch {
             repository.refreshSubscriberSilences(channelId)
+        }
+    }
+
+    fun getChannelRetentionMs(channelId: String): Long =
+        appPreferences.getChannelRetentionMs(channelId)
+
+    fun setChannelRetentionMs(channelId: String, retentionMs: Long) {
+        appPreferences.setChannelRetentionMs(channelId, retentionMs)
+        viewModelScope.launch {
+            repository.pruneExpiredInboxNotifications(channelId)
+        }
+        _statusMessage.value = if (retentionMs <= 0L) {
+            "Notifications will be kept indefinitely."
+        } else {
+            "Notification retention updated."
         }
     }
 

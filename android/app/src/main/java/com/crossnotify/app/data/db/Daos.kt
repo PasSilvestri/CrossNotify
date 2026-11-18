@@ -156,6 +156,9 @@ interface InboxDao {
     @Query("DELETE FROM inbox WHERE channelId = :channelId")
     suspend fun deleteByChannel(channelId: String)
 
+    @Query("DELETE FROM inbox WHERE channelId = :channelId AND receivedAt < :cutoffMs")
+    suspend fun deleteOlderThan(channelId: String, cutoffMs: Long)
+
     @Query("DELETE FROM inbox WHERE notificationId = :notificationId")
     suspend fun deleteById(notificationId: String)
 }

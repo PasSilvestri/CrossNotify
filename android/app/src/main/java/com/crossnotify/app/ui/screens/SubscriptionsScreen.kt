@@ -84,6 +84,7 @@ fun SubscriptionsScreen(
     val relayChannels by viewModel.relayChannels.collectAsState()
     val inboxItems by viewModel.decryptedInbox.collectAsState()
     val silenceVersion by viewModel.silenceVersion.collectAsState()
+    val retentionVersion by viewModel.retentionVersion.collectAsState()
 
     var selectedSubscriptionId by remember { mutableStateOf<String?>(null) }
     val selectedSubscription = subscriptions.firstOrNull { it.channelId == selectedSubscriptionId }
@@ -122,6 +123,9 @@ fun SubscriptionsScreen(
         val silencedApps = remember(selectedSubscription.channelId, silenceVersion) {
             viewModel.getSilencedAppsForChannel(selectedSubscription.channelId)
         }
+        val retentionMs = remember(selectedSubscription.channelId, retentionVersion) {
+            viewModel.getChannelRetentionMs(selectedSubscription.channelId)
+        }
 
         SubscriptionDetailContent(
             subscription = selectedSubscription,
@@ -131,6 +135,7 @@ fun SubscriptionsScreen(
             knownApps = knownApps,
             channelSilencedUntil = channelSilencedUntil,
             silencedApps = silencedApps,
+            retentionMs = retentionMs,
             onBack = { selectedSubscriptionId = null },
             onTestConnection = { onResult ->
                 viewModel.testSubscriptionConnection(selectedSubscription.channelId, onResult)
@@ -152,6 +157,9 @@ fun SubscriptionsScreen(
             },
             onUnsilenceApp = { appId ->
                 viewModel.unsilenceApp(selectedSubscription.channelId, appId)
+            },
+            onSetRetentionMs = { newRetentionMs ->
+                viewModel.setChannelRetentionMs(selectedSubscription.channelId, newRetentionMs)
             },
             onUnsubscribe = {
                 viewModel.unsubscribe(selectedSubscription.channelId) {
@@ -359,6 +367,7 @@ private fun SubscriptionDetailContent(
     knownApps: List<Pair<String, String>>,
     channelSilencedUntil: Long?,
     silencedApps: List<SilencedAppRule>,
+    retentionMs: Long,
     onBack: () -> Unit,
     onTestConnection: ((ConnectionTestResult) -> Unit) -> Unit,
     onChangeDeliveryMode: (String) -> Unit,
@@ -367,10 +376,12 @@ private fun SubscriptionDetailContent(
     onSilenceApp: (String, String, Long) -> Unit,
     onUnsilenceChannel: () -> Unit,
     onUnsilenceApp: (String) -> Unit,
+    onSetRetentionMs: (Long) -> Unit,
     onUnsubscribe: () -> Unit
 ) {
     var showUnsubscribeConfirm by remember { mutableStateOf(false) }
     var showSilenceDialog by remember { mutableStateOf(false) }
+    var showRetentionDialog by remember { mutableStateOf(false) }
     var isTestingConnection by remember { mutableStateOf(false) }
     var connectionTestResult by remember { mutableStateOf<ConnectionTestResult?>(null) }
 
@@ -694,6 +705,40 @@ private fun SubscriptionDetailContent(
             }
 
             item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Notification Retention",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Automatically delete older local notifications for this channel without waking the device in the background.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = formatRetentionLabel(retentionMs),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedButton(onClick = { showRetentionDialog = true }) {
+                                Text("Change...")
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
                 Spacer(modifier = Modifier.height(12.dp))
                 OutlinedButton(
                     onClick = { showUnsubscribeConfirm = true },
@@ -722,6 +767,18 @@ private fun SubscriptionDetailContent(
             onConfirmAppSilence = { appId, appLabel, durationMs ->
                 showSilenceDialog = false
                 onSilenceApp(appId, appLabel, durationMs)
+            }
+        )
+    }
+
+    if (showRetentionDialog) {
+        RetentionDialog(
+            channelName = subscription.name,
+            currentRetentionMs = retentionMs,
+            onDismiss = { showRetentionDialog = false },
+            onConfirm = { newRetentionMs ->
+                showRetentionDialog = false
+                onSetRetentionMs(newRetentionMs)
             }
         )
     }
@@ -940,4 +997,136 @@ private fun SilenceForDialog(
 
 private fun formatSilenceUntil(timestampMs: Long): String {
     return DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestampMs))
+}
+
+private const val HOUR_MS = 60L * 60L * 1000L
+private const val DAY_MS = 24L * HOUR_MS
+private const val MONTH_MS = 30L * DAY_MS
+
+private fun formatRetentionLabel(retentionMs: Long): String {
+    if (retentionMs <= 0L) return "Keep indefinitely"
+    return when {
+        retentionMs % MONTH_MS == 0L -> {
+            val months = retentionMs / MONTH_MS
+            "Delete after $months ${if (months == 1L) "month" else "months"}"
+        }
+        retentionMs % DAY_MS == 0L -> {
+            val days = retentionMs / DAY_MS
+            "Delete after $days ${if (days == 1L) "day" else "days"}"
+        }
+        else -> {
+            val hours = (retentionMs / HOUR_MS).coerceAtLeast(1L)
+            "Delete after $hours ${if (hours == 1L) "hour" else "hours"}"
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RetentionDialog(
+    channelName: String,
+    currentRetentionMs: Long,
+    onDismiss: () -> Unit,
+    onConfirm: (Long) -> Unit
+) {
+    val initialUnit = when {
+        currentRetentionMs <= 0L -> 1 // Days default
+        currentRetentionMs % MONTH_MS == 0L -> 2
+        currentRetentionMs % DAY_MS == 0L -> 1
+        else -> 0
+    }
+    val initialAmount = when {
+        currentRetentionMs <= 0L -> "7"
+        initialUnit == 2 -> (currentRetentionMs / MONTH_MS).toString()
+        initialUnit == 1 -> (currentRetentionMs / DAY_MS).toString()
+        else -> (currentRetentionMs / HOUR_MS).coerceAtLeast(1L).toString()
+    }
+
+    var keepIndefinitely by remember { mutableStateOf(currentRetentionMs <= 0L) }
+    var selectedUnit by remember { mutableStateOf(initialUnit) } // 0=Hours, 1=Days, 2=Months
+    var amountText by remember { mutableStateOf(initialAmount) }
+
+    val unitMultipliers = listOf(HOUR_MS, DAY_MS, MONTH_MS)
+    val unitLabels = listOf("Hours", "Days", "Months")
+
+    val parsedAmount = amountText.toLongOrNull() ?: 0L
+    val canConfirm = keepIndefinitely || parsedAmount > 0L
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Retention for $channelName", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { keepIndefinitely = true }
+                ) {
+                    RadioButton(
+                        selected = keepIndefinitely,
+                        onClick = { keepIndefinitely = true }
+                    )
+                    Text("Keep indefinitely")
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { keepIndefinitely = false }
+                ) {
+                    RadioButton(
+                        selected = !keepIndefinitely,
+                        onClick = { keepIndefinitely = false }
+                    )
+                    Text("Delete after custom duration")
+                }
+
+                if (!keepIndefinitely) {
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { input ->
+                            amountText = input.filter { it.isDigit() }.take(4)
+                        },
+                        label = { Text("Duration") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        unitLabels.forEachIndexed { index, label ->
+                            FilterChip(
+                                selected = selectedUnit == index,
+                                onClick = { selectedUnit = index },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val resultMs = if (keepIndefinitely) {
+                        0L
+                    } else {
+                        parsedAmount * unitMultipliers[selectedUnit]
+                    }
+                    onConfirm(resultMs)
+                },
+                enabled = canConfirm
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

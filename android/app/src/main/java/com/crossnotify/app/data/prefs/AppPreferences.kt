@@ -34,6 +34,7 @@ class AppPreferences @Inject constructor(
         private const val KEY_DAILY_SENT_PREFIX = "daily_sent_count_"
         private const val KEY_SILENCE_CHANNEL_PREFIX = "silence_channel_"
         private const val KEY_SILENCE_APPS_PREFIX = "silence_apps_"
+        private const val KEY_RETENTION_MS_PREFIX = "retention_ms_"
 
         fun defaultDeviceName(): String {
             val manufacturer = Build.MANUFACTURER?.replaceFirstChar { it.uppercase() } ?: ""
@@ -58,6 +59,9 @@ class AppPreferences @Inject constructor(
 
     private val _silenceVersion = MutableStateFlow(0)
     val silenceVersion: StateFlow<Int> = _silenceVersion.asStateFlow()
+
+    private val _retentionVersion = MutableStateFlow(0)
+    val retentionVersion: StateFlow<Int> = _retentionVersion.asStateFlow()
 
     fun setDeviceName(name: String) {
         val trimmed = name.trim().ifEmpty { defaultDeviceName() }
@@ -231,5 +235,31 @@ class AppPreferences @Inject constructor(
             )
         }
         prefs.edit().putString(KEY_SILENCE_APPS_PREFIX + channelId, arr.toString()).apply()
+    }
+
+    /**
+     * Stores per-channel notification retention in milliseconds (`0L` = keep indefinitely).
+     */
+    @Synchronized
+    fun setChannelRetentionMs(channelId: String, retentionMs: Long) {
+        if (retentionMs <= 0L) {
+            prefs.edit().remove(KEY_RETENTION_MS_PREFIX + channelId).apply()
+        } else {
+            prefs.edit().putLong(KEY_RETENTION_MS_PREFIX + channelId, retentionMs).apply()
+        }
+        _retentionVersion.value += 1
+    }
+
+    /**
+     * Returns per-channel notification retention in milliseconds, or `0L` for keep indefinitely.
+     */
+    fun getChannelRetentionMs(channelId: String): Long {
+        return prefs.getLong(KEY_RETENTION_MS_PREFIX + channelId, 0L).coerceAtLeast(0L)
+    }
+
+    @Synchronized
+    fun clearChannelRetention(channelId: String) {
+        prefs.edit().remove(KEY_RETENTION_MS_PREFIX + channelId).apply()
+        _retentionVersion.value += 1
     }
 }

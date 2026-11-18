@@ -761,6 +761,7 @@ class CrossNotifyRepository @Inject constructor(
         }
         notificationHelper.deleteSubscriptionChannel(channelId)
         appPreferences.clearAllSilencesForChannel(channelId)
+        appPreferences.clearChannelRetention(channelId)
         inboxDao.deleteByChannel(channelId)
         subscriptionDao.deleteById(channelId)
         serverDao.deleteOrphanedServers()
@@ -946,6 +947,15 @@ class CrossNotifyRepository @Inject constructor(
     ): NotificationPlaintext? {
         val sub = subscriptionDao.getById(channelId) ?: return null
         if (sub.status != "active" || sub.e2eKeyEnc.isBlank()) return null
+
+        // Skip notifications that are already expired under this channel's retention policy
+        val retentionMs = appPreferences.getChannelRetentionMs(channelId)
+        if (retentionMs > 0L && receivedAt > 0L && receivedAt < System.currentTimeMillis() - retentionMs) {
+            if (updateSyncCursor) {
+                subscriptionDao.updateLastReceivedAt(channelId, receivedAt)
+            }
+            return null
+        }
 
         // Skip redundant Keystore unwrap + AES-GCM decryption if already stored locally
         if (inboxDao.getById(notificationId) != null) {
@@ -1137,6 +1147,28 @@ class CrossNotifyRepository @Inject constructor(
     }
 
     /**
+     * Deletes locally stored inbox notifications that have exceeded their channel's configured
+     * retention period. Piggybacks on existing app/sync activity to avoid extra CPU wakeups.
+     */
+    suspend fun pruneExpiredInboxNotifications(channelId: String? = null) {
+        val now = System.currentTimeMillis()
+        if (channelId != null) {
+            val retentionMs = appPreferences.getChannelRetentionMs(channelId)
+            if (retentionMs > 0L) {
+                inboxDao.deleteOlderThan(channelId, now - retentionMs)
+            }
+            return
+        }
+        val subs = subscriptionDao.getAll()
+        for (sub in subs) {
+            val retentionMs = appPreferences.getChannelRetentionMs(sub.channelId)
+            if (retentionMs > 0L) {
+                inboxDao.deleteOlderThan(sub.channelId, now - retentionMs)
+            }
+        }
+    }
+
+    /**
      * Synchronizes missed notifications for all active subscriptions by paging through
      * recent server records since the last known timestamp.
      */
@@ -1149,6 +1181,7 @@ class CrossNotifyRepository @Inject constructor(
         }
         // Prune deduplication records older than 7 days
         seenOriginDao.pruneOlderThan(System.currentTimeMillis() - SEVEN_DAYS_MS)
+        pruneExpiredInboxNotifications()
         return allSucceeded
     }
 
@@ -1208,6 +1241,7 @@ class CrossNotifyRepository @Inject constructor(
                 return false
             }
         }
+        pruneExpiredInboxNotifications(channelId)
         return true
     }
 
