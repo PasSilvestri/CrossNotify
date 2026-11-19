@@ -292,4 +292,158 @@ describe('Publish, Push Dispatch & Catch-up Sync (Tests 7 & 8)', () => {
       expect(remaining.length).toBe(0);
     });
   });
+
+  describe('Dismissal Sync, Action Execution & Permissions (v1.2.0)', () => {
+    it('batches relay dismissals and broadcasts notifications_handled to subscribers', async () => {
+      const id1 = crypto.randomUUID();
+      const id2 = crypto.randomUUID();
+      for (const id of [id1, id2]) {
+        await request(testEnv.ctx.app)
+          .post(`/api/v1/channels/${channelId}/notifications`)
+          .set('Authorization', `Bearer ${relayKey}`)
+          .send({
+            notificationId: id,
+            iv: crypto.randomBytes(12).toString('base64url'),
+            ciphertext: Buffer.from('msg').toString('base64url'),
+          });
+      }
+
+      const dismissRes = await request(testEnv.ctx.app)
+        .post(`/api/v1/channels/${channelId}/notifications/dismiss`)
+        .set('Authorization', `Bearer ${relayKey}`)
+        .send({
+          items: [
+            { notificationId: id1, reason: 'opened' },
+            { notificationId: id2, reason: 'dismissed' },
+          ],
+        });
+
+      expect(dismissRes.status).toBe(200);
+      expect(dismissRes.body.updatedCount).toBe(2);
+      expect(testEnv.mockPush.handledCalls.length).toBe(1);
+      expect(testEnv.mockPush.handledCalls[0].tokens).toEqual(['fcm_token_sub_1']);
+      expect(testEnv.mockPush.handledCalls[0].items.length).toBe(2);
+
+      // Catch-up includes handledAt and handledReason
+      const catchUp = await request(testEnv.ctx.app)
+        .get(`/api/v1/channels/${channelId}/notifications`)
+        .set('Authorization', `Bearer ${subKey}`);
+      expect(catchUp.status).toBe(200);
+      const n1 = catchUp.body.notifications.find((n: any) => n.notificationId === id1);
+      expect(n1.handledAt).toBeTruthy();
+      expect(n1.handledReason).toBe('opened');
+    });
+
+    it('executes action atomically, blocks concurrent second subscriber with 409, and notifies other subscribers', async () => {
+      // Register relay FCM token
+      await request(testEnv.ctx.app)
+        .put(`/api/v1/channels/${channelId}/relay`)
+        .set('Authorization', `Bearer ${relayKey}`)
+        .send({ fcmToken: 'fcm_token_relay_1' });
+
+      // Add a second subscriber
+      const mint2 = await request(testEnv.ctx.app)
+        .post(`/api/v1/channels/${channelId}/subscribers/keys`)
+        .set('Authorization', `Bearer ${relayKey}`)
+        .send({ allowActions: true });
+      const subKey2 = mint2.body.apiKey;
+      await request(testEnv.ctx.app)
+        .post(`/api/v1/channels/${channelId}/subscribers/init`)
+        .set('Authorization', `Bearer ${subKey2}`)
+        .send({ fcmToken: 'fcm_token_sub_2', deliveryMode: 'immediate_preview' });
+
+      // Publish notification
+      const notifId = crypto.randomUUID();
+      await request(testEnv.ctx.app)
+        .post(`/api/v1/channels/${channelId}/notifications`)
+        .set('Authorization', `Bearer ${relayKey}`)
+        .send({
+          notificationId: notifId,
+          iv: crypto.randomBytes(12).toString('base64url'),
+          ciphertext: Buffer.from('hello').toString('base64url'),
+        });
+
+      // Subscriber 1 executes action -> succeeds
+      const act1 = await request(testEnv.ctx.app)
+        .post(`/api/v1/channels/${channelId}/notifications/${notifId}/actions`)
+        .set('Authorization', `Bearer ${subKey}`)
+        .send({
+          actionId: crypto.randomUUID(),
+          iv: crypto.randomBytes(12).toString('base64url'),
+          ciphertext: Buffer.from('reply_payload').toString('base64url'),
+        });
+
+      expect(act1.status).toBe(200);
+      expect(act1.body.dispatched).toBe(true);
+      expect(testEnv.mockPush.executeActionCalls.length).toBe(1);
+      expect(testEnv.mockPush.executeActionCalls[0].relayFcmToken).toBe('fcm_token_relay_1');
+
+      // Other subscriber (sub 2) gets notifications_handled push
+      expect(testEnv.mockPush.handledCalls.length).toBe(1);
+      expect(testEnv.mockPush.handledCalls[0].tokens).toEqual(['fcm_token_sub_2']);
+
+      // Subscriber 2 attempts action -> 409 already_handled, relay is NOT woken again
+      const act2 = await request(testEnv.ctx.app)
+        .post(`/api/v1/channels/${channelId}/notifications/${notifId}/actions`)
+        .set('Authorization', `Bearer ${subKey2}`)
+        .send({
+          actionId: crypto.randomUUID(),
+          iv: crypto.randomBytes(12).toString('base64url'),
+          ciphertext: Buffer.from('reply_payload_2').toString('base64url'),
+        });
+
+      expect(act2.status).toBe(409);
+      expect(act2.body.error).toBe('already_handled');
+      expect(testEnv.mockPush.executeActionCalls.length).toBe(1);
+    });
+
+    it('enforces allowActions permission per subscriber via mint and update endpoint', async () => {
+      await request(testEnv.ctx.app)
+        .put(`/api/v1/channels/${channelId}/relay`)
+        .set('Authorization', `Bearer ${relayKey}`)
+        .send({ fcmToken: 'fcm_token_relay_1' });
+
+      // Mint subscriber with default allowActions=true, then toggle to false before pairing
+      const mint = await request(testEnv.ctx.app)
+        .post(`/api/v1/channels/${channelId}/subscribers/keys`)
+        .set('Authorization', `Bearer ${relayKey}`);
+      expect(mint.body.allowActions).toBe(true);
+
+      const toggleRes = await request(testEnv.ctx.app)
+        .put(`/api/v1/channels/${channelId}/subscribers/${mint.body.subscriberId}`)
+        .set('Authorization', `Bearer ${relayKey}`)
+        .send({ allowActions: false });
+      expect(toggleRes.status).toBe(200);
+      expect(toggleRes.body.allowActions).toBe(false);
+
+      const initRes = await request(testEnv.ctx.app)
+        .post(`/api/v1/channels/${channelId}/subscribers/init`)
+        .set('Authorization', `Bearer ${mint.body.apiKey}`)
+        .send({ fcmToken: 'fcm_token_readonly', deliveryMode: 'immediate_preview' });
+      expect(initRes.status).toBe(200);
+      expect(initRes.body.allowActions).toBe(false);
+
+      const notifId = crypto.randomUUID();
+      await request(testEnv.ctx.app)
+        .post(`/api/v1/channels/${channelId}/notifications`)
+        .set('Authorization', `Bearer ${relayKey}`)
+        .send({
+          notificationId: notifId,
+          iv: crypto.randomBytes(12).toString('base64url'),
+          ciphertext: Buffer.from('hello').toString('base64url'),
+        });
+
+      const actRes = await request(testEnv.ctx.app)
+        .post(`/api/v1/channels/${channelId}/notifications/${notifId}/actions`)
+        .set('Authorization', `Bearer ${mint.body.apiKey}`)
+        .send({
+          actionId: crypto.randomUUID(),
+          iv: crypto.randomBytes(12).toString('base64url'),
+          ciphertext: Buffer.from('reply').toString('base64url'),
+        });
+
+      expect(actRes.status).toBe(403);
+      expect(actRes.body.error).toBe('actions_not_allowed');
+    });
+  });
 });

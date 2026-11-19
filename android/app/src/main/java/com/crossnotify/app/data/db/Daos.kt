@@ -126,6 +126,9 @@ interface SubscriptionDao {
     @Query("UPDATE subscriptions SET forwardToRelayChannelId = :forwardToRelayChannelId WHERE channelId = :channelId")
     suspend fun updateForwardToRelayChannel(channelId: String, forwardToRelayChannelId: String?)
 
+    @Query("UPDATE subscriptions SET allowActions = :allowActions WHERE channelId = :channelId")
+    suspend fun updateAllowActions(channelId: String, allowActions: Boolean)
+
     @Query("UPDATE subscriptions SET status = 'revoked', apiKeyEnc = '', e2eKeyEnc = '', forwardToRelayChannelId = NULL WHERE channelId = :channelId")
     suspend fun markRevokedAndWipeKeys(channelId: String)
 
@@ -144,11 +147,17 @@ interface InboxDao {
     @Query("SELECT * FROM inbox WHERE notificationId = :notificationId LIMIT 1")
     suspend fun getById(notificationId: String): InboxEntity?
 
+    @Query("SELECT * FROM inbox WHERE notificationId = :notificationId LIMIT 1")
+    fun observeById(notificationId: String): Flow<InboxEntity?>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnore(item: InboxEntity): Long
 
     @Query("UPDATE inbox SET readAt = :readAt WHERE notificationId = :notificationId AND readAt IS NULL")
     suspend fun markRead(notificationId: String, readAt: Long)
+
+    @Query("UPDATE inbox SET handledAt = :handledAt, handledReason = :handledReason WHERE notificationId = :notificationId AND handledAt IS NULL")
+    suspend fun markHandled(notificationId: String, handledAt: Long, handledReason: String?)
 
     @Query("UPDATE inbox SET readAt = :readAt WHERE channelId = :channelId AND readAt IS NULL")
     suspend fun markChannelRead(channelId: String, readAt: Long)

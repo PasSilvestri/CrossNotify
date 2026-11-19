@@ -112,7 +112,7 @@ export async function createApp(deps: AppDependencies = {}): Promise<AppContext>
   );
 
   app.use(cookieParser());
-  app.use(express.json({ limit: '64kb' }));
+  app.use(express.json({ limit: '512kb' }));
   app.use(express.urlencoded({ extended: false }));
 
   // Public Health endpoint
@@ -155,7 +155,7 @@ export async function createApp(deps: AppDependencies = {}): Promise<AppContext>
   deviceApi.use(deviceKeyLimiter);
 
   deviceApi.use(createDeviceRelayRouter(channelService, pushService));
-  deviceApi.use(createDeviceSubscribersRouter(subscriberService, channelService, settingsService));
+  deviceApi.use(createDeviceSubscribersRouter(subscriberService, channelService, settingsService, pushService));
   deviceApi.use(createDeviceNotificationsRouter(notificationService, channelService, subscriberService, pushService));
 
   app.use('/api/v1', deviceApi);

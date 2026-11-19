@@ -199,7 +199,7 @@ sequenceDiagram
 ```
 
 ### 4.5 Catch-Up Sync
-When the app opens (and when the device regains connectivity, managed via WorkManager with a network constraint), each subscription queries `GET /api/v1/channels/:id/notifications?since=<lastReceivedAt>` and pages through until `hasMore=false`. The notifications are saved into the local inbox. Deduplication is performed by `notificationId`.
+When the app opens, when the user navigates to the Inbox or Subscriptions screens (or switches channel filters), and when the device regains connectivity (managed via WorkManager with a network constraint), subscriptions query `GET /api/v1/channels/:id/notifications?since=<cursor>` and page through until `hasMore=false`. All missed notifications are downloaded, decrypted, and saved into the local inbox even if tray notifications were never tapped. Out-of-order single-notification fetches do not advance `lastReceivedAt`, and deduplication is performed by `notificationId`.
 
 ### 4.6 Daisy Chaining
 A phone that subscribes to channel A (on server 1) and relays channel B (on server 2) can forward notifications from A to B:
@@ -392,10 +392,10 @@ seen_origins(originId PK, seenAt)          -- deduplication for daisy chains, pr
   - "Add relay channel" action: opens camera scanner (accepting `cn-relay`), confirms server parameters, invokes `POST /api/v1/relay/init`, generates local E2E key, and saves configuration.
   - Channel detail: package-level allow/deny filters with app icons and search, app name transmission toggle, subscriber count, "Share with subscriber" (biometric-gated `cn-sub` pairing QR), and channel deletion.
 - **Subscriptions Screen**:
-  - Displays active subscriptions (channel name, relay device name, server, delivery mode, unread count).
+  - Displays active subscriptions (channel name, relay device name, server, delivery mode, silenced badge if muted, unread count).
   - "Add subscription" action: scans `cn-sub` QR code, initializes named Firebase app, registers with server, and stores keys.
-  - Subscription detail: delivery mode switcher, daisy chain forwarding selector, and unsubscribe action.
-- **Inbox Screen**: Decrypted notification list grouped by subscription. Tapping an item opens the full message viewer with app icon and details.
+  - Subscription detail: connection test, delivery mode switcher, daisy chain forwarding selector, **"Silence for..."** timed mute controls (entire relay or specific app, enforced server-side for both delivery modes), **Notification Retention** per-channel policy (hours/days/months or keep indefinitely, pruned lazily on app/sync activity with zero extra background wakeups), and unsubscribe action.
+- **Inbox Screen**: Decrypted notification history grouped by subscription with per-channel filter chips. Automatically triggers catch-up sync and decryption on entry and channel filter change. Tapping an item opens the full message viewer with app icon and details.
 - **Decrypt Activity**: Destination for `com.crossnotify.app.OPEN_NOTIFICATION` intent actions (invoked when tapping battery-saver notifications). Reads `channelId` and `notificationId` from extras, fetches the encrypted blob if needed, decrypts, displays content, and updates read state.
 - **Settings Screen**: Local device display name, insecure HTTP policy configuration, permissions overview, and application licensing.
 

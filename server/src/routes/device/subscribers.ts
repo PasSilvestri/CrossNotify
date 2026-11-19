@@ -12,6 +12,15 @@ import { sha256Hex } from '../../crypto/tokens.js';
 import type { SubscriberService } from '../../services/subscriberService.js';
 import type { ChannelService } from '../../services/channelService.js';
 import type { SettingsService } from '../../services/settingsService.js';
+import type { PushService } from '../../services/pushService.js';
+
+const MintSubscriberKeySchema = z.object({
+  allowActions: z.boolean().optional().default(true),
+}).optional().default({ allowActions: true });
+
+const UpdateSubscriberPermissionsSchema = z.object({
+  allowActions: z.boolean(),
+});
 
 const SubscriberInitSchema = z.object({
   fcmToken: z.string().min(1),
@@ -38,7 +47,8 @@ const SubscriberSilenceSchema = z.object({
 export function createDeviceSubscribersRouter(
   subscriberService: SubscriberService,
   channelService: ChannelService,
-  settingsService: SettingsService
+  settingsService: SettingsService,
+  pushService: PushService
 ): Router {
   const router = Router();
 
@@ -48,7 +58,15 @@ export function createDeviceSubscribersRouter(
     requireRelayKey(channelService),
     (req: DeviceRequest, res, next) => {
       try {
-        const result = subscriberService.mintSubscriberKey(String(req.params.channelId));
+        const parsed = MintSubscriberKeySchema.safeParse(req.body ?? {});
+        if (!parsed.success) {
+          res.status(400).json({ error: 'validation_error', message: 'Invalid mint subscriber request' });
+          return;
+        }
+        const result = subscriberService.mintSubscriberKey(
+          String(req.params.channelId),
+          parsed.data.allowActions
+        );
         res.status(201).json(result);
       } catch (err) {
         next(err);
@@ -90,6 +108,43 @@ export function createDeviceSubscribersRouter(
       try {
         const result = subscriberService.updateSelf(req.subscriber!.subscriber_id, req.body);
         res.json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // PUT /api/v1/channels/:channelId/subscribers/:subscriberId (Relay phone updates subscriber permissions)
+  router.put(
+    '/channels/:channelId/subscribers/:subscriberId',
+    requireRelayKey(channelService),
+    validateBody(UpdateSubscriberPermissionsSchema),
+    (req: DeviceRequest, res, next) => {
+      try {
+        const channel = req.channel!;
+        const subscriberId = String(req.params.subscriberId);
+        const result = subscriberService.updateSubscriberPermissions(
+          channel.channel_id,
+          subscriberId,
+          req.body.allowActions
+        );
+
+        if (result.status === 'active' && result.fcmToken && !result.fcmToken.startsWith('fcm_pending_')) {
+          pushService.sendSubscriberPermissionsUpdated(
+            channel,
+            result.fcmToken,
+            result.subscriberId,
+            result.allowActions
+          ).catch((err) => {
+            console.error('[subscribers] Error sending subscriber_permissions_updated push:', err);
+          });
+        }
+
+        res.json({
+          status: 'ok',
+          subscriberId: result.subscriberId,
+          allowActions: result.allowActions,
+        });
       } catch (err) {
         next(err);
       }
@@ -191,7 +246,9 @@ export function createDeviceSubscribersRouter(
         relayDeviceName: channel.relay_device_name,
         subscriberCount: detail?.subscriberCount || 0,
         notificationTtlHours: settings.notificationTtlHours,
-        ...(isRelay ? { subscribers: detail?.subscribers || [] } : {}),
+        ...(isRelay
+          ? { subscribers: detail?.subscribers || [] }
+          : { allowActions: req.subscriber ? req.subscriber.allow_actions !== 0 : true }),
       });
     }
   );

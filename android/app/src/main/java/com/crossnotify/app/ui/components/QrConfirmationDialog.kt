@@ -71,6 +71,10 @@ fun QrConfirmationDialog(
                         }
                         InfoLine("Server", "${p.server.name} (${p.server.url})")
                         InfoLine("Firebase Project", p.firebase.projectId)
+                        InfoLine(
+                            "Notification Actions",
+                            if (p.channel.allowActions) "Allowed (reply & actions)" else "Read-only"
+                        )
 
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(

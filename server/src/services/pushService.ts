@@ -1,7 +1,7 @@
 import type { Message } from 'firebase-admin/messaging';
 import { LIMITS } from '../constants.js';
 import type { ChannelRow } from './channelService.js';
-import type { NotificationRow } from './notificationService.js';
+import type { HandledNotificationEvent, NotificationRow } from './notificationService.js';
 import type { FirebaseAdminService } from './firebaseAdmin.js';
 import type { SubscriberService } from './subscriberService.js';
 
@@ -11,10 +11,21 @@ export interface PushResult {
   removed: number;
 }
 
+export interface ExecuteActionPushPayload {
+  notificationId: string;
+  actionId: string;
+  iv: string;
+  ciphertext: string;
+  subscriberId: string;
+}
+
 export interface PushService {
   dispatch(channel: ChannelRow, n: NotificationRow): Promise<PushResult>;
   sendChannelRevoked(channel: ChannelRow, tokens: string[], subscriberId?: string): Promise<void>;
   sendRelayNameUpdated(channel: ChannelRow, tokens: string[], newRelayDeviceName: string): Promise<void>;
+  sendNotificationsHandled(channel: ChannelRow, tokens: string[], items: HandledNotificationEvent[]): Promise<void>;
+  sendExecuteAction(channel: ChannelRow, relayFcmToken: string, payload: ExecuteActionPushPayload): Promise<boolean>;
+  sendSubscriberPermissionsUpdated(channel: ChannelRow, token: string, subscriberId: string, allowActions: boolean): Promise<void>;
 }
 
 export class FcmPushService implements PushService {
@@ -212,6 +223,121 @@ export class FcmPushService implements PushService {
       } catch (err: any) {
         console.error('[pushService] Error sending relay_name_updated push:', err.message);
       }
+    }
+  }
+
+  async sendNotificationsHandled(
+    channel: ChannelRow,
+    tokens: string[],
+    items: HandledNotificationEvent[]
+  ): Promise<void> {
+    const messaging = this.firebaseAdminService.getMessaging();
+    if (!messaging || tokens.length === 0 || items.length === 0) {
+      return;
+    }
+
+    // Chunk items so each FCM data message stays well under 3.5 KB
+    const CHUNK_SIZE = 25;
+    for (let c = 0; c < items.length; c += CHUNK_SIZE) {
+      const chunk = items.slice(c, c + CHUNK_SIZE);
+      const compactItems = JSON.stringify(
+        chunk.map((item) => ({
+          id: item.notificationId,
+          r: item.reason,
+          at: item.handledAt,
+        }))
+      );
+
+      const messages: Message[] = tokens.map((token) => ({
+        token,
+        data: {
+          cn: '1',
+          type: 'notifications_handled',
+          channelId: channel.channel_id,
+          items: compactItems,
+        },
+        android: {
+          // Normal priority avoids waking subscriber radios unnecessarily in deep Doze
+          // and prevents FCM high-priority quota throttling for non-display data messages.
+          priority: 'normal',
+          ttl: 24 * 60 * 60 * 1000,
+        },
+      }));
+
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < messages.length; i += BATCH_SIZE) {
+        const batch = messages.slice(i, i + BATCH_SIZE);
+        try {
+          await messaging.sendEach(batch);
+        } catch (err: any) {
+          console.error('[pushService] Error sending notifications_handled push:', err.message);
+        }
+      }
+    }
+  }
+
+  async sendExecuteAction(
+    channel: ChannelRow,
+    relayFcmToken: string,
+    payload: ExecuteActionPushPayload
+  ): Promise<boolean> {
+    const messaging = this.firebaseAdminService.getMessaging();
+    if (!messaging || !relayFcmToken || relayFcmToken.startsWith('fcm_pending_')) {
+      return false;
+    }
+
+    try {
+      await messaging.send({
+        token: relayFcmToken,
+        data: {
+          cn: '1',
+          type: 'execute_action',
+          channelId: channel.channel_id,
+          notificationId: payload.notificationId,
+          actionId: payload.actionId,
+          iv: payload.iv,
+          ct: payload.ciphertext,
+          subscriberId: payload.subscriberId,
+        },
+        android: {
+          priority: 'high',
+          ttl: 60 * 1000,
+        },
+      });
+      return true;
+    } catch (err: any) {
+      console.error('[pushService] Error sending execute_action push to relay:', err.message);
+      return false;
+    }
+  }
+
+  async sendSubscriberPermissionsUpdated(
+    channel: ChannelRow,
+    token: string,
+    subscriberId: string,
+    allowActions: boolean
+  ): Promise<void> {
+    const messaging = this.firebaseAdminService.getMessaging();
+    if (!messaging || !token || token.startsWith('fcm_pending_')) {
+      return;
+    }
+
+    try {
+      await messaging.send({
+        token,
+        data: {
+          cn: '1',
+          type: 'subscriber_permissions_updated',
+          channelId: channel.channel_id,
+          subscriberId,
+          allowActions: allowActions ? '1' : '0',
+        },
+        android: {
+          priority: 'normal',
+        },
+      });
+    } catch (err: any) {
+      console.error('[pushService] Error sending subscriber_permissions_updated push:', err.message);
     }
   }
 }

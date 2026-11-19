@@ -94,6 +94,7 @@ data class SubscriptionEntity(
     val lastReceivedAt: Long = 0L,
     val forwardToRelayChannelId: String? = null,
     val lastRegisteredFcmToken: String? = null,
+    val allowActions: Boolean = true,
     val status: String = "active" // "active" or "revoked"
 )
 
@@ -122,7 +123,9 @@ data class InboxEntity(
     val appName: String?,
     val relayTimestamp: Long,
     val receivedAt: Long,
-    val readAt: Long? = null
+    val readAt: Long? = null,
+    val handledAt: Long? = null,
+    val handledReason: String? = null
 )
 
 @Entity(

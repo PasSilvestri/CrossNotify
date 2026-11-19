@@ -10,10 +10,12 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import com.crossnotify.app.R
 import com.crossnotify.app.crypto.NotificationPlaintext
 import com.crossnotify.app.data.db.SubscriptionEntity
+import com.crossnotify.app.service.NotificationActionReceiver
 import com.crossnotify.app.ui.DecryptActivity
 import com.crossnotify.app.ui.MainActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -124,13 +126,22 @@ class NotificationHelper @Inject constructor(
         val expandedText = plaintext.bigText.ifBlank { plaintext.text }
 
         val appIconBitmap = plaintext.icon?.let { AppIconHelper.decodeBase64ToBitmap(it) }
+        val pictureBitmap = plaintext.image?.let { NotificationMediaHelper.decodeBase64ToBitmap(it) }
+
+        val style: NotificationCompat.Style = if (pictureBitmap != null) {
+            NotificationCompat.BigPictureStyle()
+                .bigPicture(pictureBitmap)
+                .setSummaryText(expandedText)
+        } else {
+            NotificationCompat.BigTextStyle().bigText(expandedText)
+        }
 
         val builder = NotificationCompat.Builder(context, sysChannelId)
             .setSmallIcon(R.drawable.ic_notification)
             .setSubText(headerPrefix)
             .setContentTitle(contentTitle)
             .setContentText(contentText)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText))
+            .setStyle(style)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
@@ -142,11 +153,70 @@ class NotificationHelper @Inject constructor(
             builder.setLargeIcon(appIconBitmap)
         }
 
+        // Attach interactive notification actions & inline RemoteInput replies if permitted
+        if (subscription.allowActions && plaintext.actions.isNotEmpty()) {
+            plaintext.actions.take(3).forEach { actionMeta ->
+                val remoteInputKey = if (actionMeta.isReply) {
+                    "cn_reply_${plaintext.id}_${actionMeta.idx}"
+                } else {
+                    null
+                }
+                val actionIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+                    action = NotificationActionReceiver.ACTION_EXECUTE_NOTIFICATION_ACTION
+                    putExtra(NotificationActionReceiver.EXTRA_CHANNEL_ID, subscription.channelId)
+                    putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, plaintext.id)
+                    putExtra(NotificationActionReceiver.EXTRA_ACTION_INDEX, actionMeta.idx)
+                    if (remoteInputKey != null) {
+                        putExtra(NotificationActionReceiver.EXTRA_REMOTE_INPUT_KEY, remoteInputKey)
+                    }
+                }
+                val requestCode = "${plaintext.id}:act:${actionMeta.idx}".hashCode()
+                val piFlags = if (actionMeta.isReply) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                }
+                val actionPendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    requestCode,
+                    actionIntent,
+                    piFlags
+                )
+
+                val actionBuilder = NotificationCompat.Action.Builder(
+                    0,
+                    actionMeta.title,
+                    actionPendingIntent
+                )
+
+                if (actionMeta.isReply && remoteInputKey != null) {
+                    val remoteInputBuilder = RemoteInput.Builder(remoteInputKey)
+                        .setLabel(actionMeta.replyLabel ?: actionMeta.title)
+                    if (actionMeta.choices.isNotEmpty()) {
+                        remoteInputBuilder.setChoices(actionMeta.choices.toTypedArray())
+                    }
+                    actionBuilder.addRemoteInput(remoteInputBuilder.build())
+                }
+
+                builder.addAction(actionBuilder.build())
+            }
+        }
+
         NotificationManagerCompat.from(context).notify(
             plaintext.id,
             plaintext.id.hashCode(),
             builder.build()
         )
+    }
+
+    /**
+     * Dismisses a relayed notification from the subscriber's status bar across both
+     * `immediate_preview` (id = hashCode) and `battery_saver` FCM-posted notifications (id = 0).
+     */
+    fun cancelRelayedNotification(notificationId: String) {
+        val nm = NotificationManagerCompat.from(context)
+        runCatching { nm.cancel(notificationId, notificationId.hashCode()) }
+        runCatching { nm.cancel(notificationId, 0) }
     }
 
     /**

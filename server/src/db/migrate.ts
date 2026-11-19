@@ -120,4 +120,39 @@ export function runMigrations(db: Database.Database): void {
     applyMigration3();
     console.log('[db] Applied migration 003_subscriber_silences.sql');
   }
+
+  // Migration 4
+  if (!appliedSet.has(4)) {
+    let sql: string | null = null;
+    const candidatePaths = [
+      path.join(__dirname, 'migrations', '004_actions_and_handled.sql'),
+      path.join(process.cwd(), 'src', 'db', 'migrations', '004_actions_and_handled.sql'),
+      path.join(process.cwd(), 'migrations', '004_actions_and_handled.sql'),
+    ];
+
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        sql = fs.readFileSync(p, 'utf8');
+        break;
+      }
+    }
+
+    if (!sql) {
+      sql = `
+        ALTER TABLE subscribers ADD COLUMN allow_actions INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE notifications ADD COLUMN handled_at INTEGER;
+        ALTER TABLE notifications ADD COLUMN handled_reason TEXT;
+        ALTER TABLE notifications ADD COLUMN handled_by TEXT;
+        CREATE INDEX IF NOT EXISTS idx_notifications_handled ON notifications(channel_id, handled_at);
+      `;
+    }
+
+    const applyMigration4 = db.transaction(() => {
+      db.exec(sql!);
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(4, Date.now());
+    });
+
+    applyMigration4();
+    console.log('[db] Applied migration 004_actions_and_handled.sql');
+  }
 }

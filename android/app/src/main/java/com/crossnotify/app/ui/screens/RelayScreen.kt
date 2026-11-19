@@ -121,6 +121,15 @@ fun RelayScreen(
                 viewModel.testRelayConnection(selectedChannel.channelId, onResult)
             },
             onShareQr = { onShareSubscriberQrWithBiometric(selectedChannel) },
+            onToggleSubscriberActions = { subscriberId, allow ->
+                viewModel.updateRelaySubscriberAllowActions(
+                    channelId = selectedChannel.channelId,
+                    subscriberId = subscriberId,
+                    allowActions = allow
+                ) {
+                    viewModel.refreshRelayChannelInfo(selectedChannel.channelId)
+                }
+            },
             onToggleSendAppName = { viewModel.setRelaySendAppName(selectedChannel.channelId, it) },
             onChangeFilterMode = { viewModel.setRelayFilterMode(selectedChannel.channelId, it) },
             onTogglePackageFilter = { pkg, checked ->
@@ -379,6 +388,7 @@ private fun RelayChannelDetailContent(
     onRefreshInfo: () -> Unit,
     onTestConnection: ((ConnectionTestResult) -> Unit) -> Unit,
     onShareQr: () -> Unit,
+    onToggleSubscriberActions: (subscriberId: String, allowActions: Boolean) -> Unit,
     onToggleSendAppName: (Boolean) -> Unit,
     onChangeFilterMode: (String) -> Unit,
     onTogglePackageFilter: (String, Boolean) -> Unit,
@@ -612,6 +622,24 @@ private fun RelayChannelDetailContent(
                                                 text = "Last seen: $seenStr",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Allow notification actions",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Switch(
+                                                checked = sub.allowActions,
+                                                onCheckedChange = { allow ->
+                                                    onToggleSubscriberActions(sub.subscriberId, allow)
+                                                }
                                             )
                                         }
                                     }

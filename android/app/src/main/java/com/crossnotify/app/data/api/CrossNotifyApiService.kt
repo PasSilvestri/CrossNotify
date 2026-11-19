@@ -53,8 +53,32 @@ interface CrossNotifyApiService {
     @POST("api/v1/channels/{channelId}/subscribers/keys")
     suspend fun mintSubscriberKey(
         @Header("Authorization") authHeader: String,
-        @Path("channelId") channelId: String
+        @Path("channelId") channelId: String,
+        @Body body: MintSubscriberKeyRequest = MintSubscriberKeyRequest()
     ): Response<MintSubscriberKeyResponse>
+
+    @PUT("api/v1/channels/{channelId}/subscribers/{subscriberId}")
+    suspend fun updateSubscriberPermissions(
+        @Header("Authorization") authHeader: String,
+        @Path("channelId") channelId: String,
+        @Path("subscriberId") subscriberId: String,
+        @Body body: UpdateSubscriberPermissionsRequest
+    ): Response<UpdateSubscriberPermissionsResponse>
+
+    @POST("api/v1/channels/{channelId}/notifications/dismiss")
+    suspend fun dismissNotifications(
+        @Header("Authorization") authHeader: String,
+        @Path("channelId") channelId: String,
+        @Body body: DismissNotificationsRequest
+    ): Response<DismissNotificationsResponse>
+
+    @POST("api/v1/channels/{channelId}/notifications/{notificationId}/actions")
+    suspend fun executeNotificationAction(
+        @Header("Authorization") authHeader: String,
+        @Path("channelId") channelId: String,
+        @Path("notificationId") notificationId: String,
+        @Body body: ExecuteActionRequest
+    ): Response<ExecuteActionResponse>
 
     @POST("api/v1/channels/{channelId}/subscribers/init")
     suspend fun initSubscriber(

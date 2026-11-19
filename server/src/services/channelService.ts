@@ -242,11 +242,16 @@ export class ChannelService {
     return row || null;
   }
 
-  getActiveSubscriberTokens(channelId: string): string[] {
-    const rows = this.db.prepare(`
-      SELECT fcm_token FROM subscribers
-      WHERE channel_id = ? AND status = 'active' AND fcm_token IS NOT NULL
-    `).all(channelId) as { fcm_token: string }[];
+  getActiveSubscriberTokens(channelId: string, excludeSubscriberId?: string): string[] {
+    const rows = excludeSubscriberId
+      ? (this.db.prepare(`
+          SELECT fcm_token FROM subscribers
+          WHERE channel_id = ? AND status = 'active' AND fcm_token IS NOT NULL AND subscriber_id != ?
+        `).all(channelId, excludeSubscriberId) as { fcm_token: string }[])
+      : (this.db.prepare(`
+          SELECT fcm_token FROM subscribers
+          WHERE channel_id = ? AND status = 'active' AND fcm_token IS NOT NULL
+        `).all(channelId) as { fcm_token: string }[]);
     return rows.map((r) => r.fcm_token).filter((t): t is string => !!t && !t.startsWith('fcm_pending_'));
   }
 
@@ -347,12 +352,13 @@ export class ChannelService {
 
     if (!channel) return null;
 
-    const subscribers = this.db.prepare(`
+    const subscribers = (this.db.prepare(`
       SELECT
         subscriber_id as subscriberId,
         device_name as deviceName,
         device_model as deviceModel,
         delivery_mode as deliveryMode,
+        allow_actions as allowActions,
         status,
         created_at as createdAt,
         activated_at as activatedAt,
@@ -360,7 +366,10 @@ export class ChannelService {
       FROM subscribers
       WHERE channel_id = ?
       ORDER BY created_at DESC
-    `).all(channelId);
+    `).all(channelId) as Array<any>).map((s) => ({
+      ...s,
+      allowActions: s.allowActions !== 0,
+    }));
 
     return {
       ...channel,

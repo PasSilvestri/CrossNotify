@@ -262,6 +262,19 @@ CREATE TABLE notifications (
 );
 CREATE INDEX idx_notifications_channel_created ON notifications(channel_id, created_at);
 CREATE INDEX idx_notifications_expires ON notifications(expires_at);
+
+-- Per-subscriber temporary silence rules (migration 003_subscriber_silences.sql)
+CREATE TABLE subscriber_silences (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  subscriber_id  TEXT NOT NULL REFERENCES subscribers(subscriber_id) ON DELETE CASCADE,
+  channel_id     TEXT NOT NULL REFERENCES channels(channel_id) ON DELETE CASCADE,
+  app_name       TEXT NOT NULL DEFAULT '',   -- '' = entire channel; otherwise case-insensitive app name
+  silenced_until INTEGER NOT NULL,           -- Expiration epoch ms
+  created_at     INTEGER NOT NULL,
+  UNIQUE(subscriber_id, app_name)
+);
+CREATE INDEX idx_subscriber_silences_sub ON subscriber_silences(subscriber_id);
+CREATE INDEX idx_subscriber_silences_until ON subscriber_silences(silenced_until);
 ```
 
 Database migrations are tracked in `schema_migrations` and applied sequentially within database transactions on server boot.
@@ -459,6 +472,9 @@ All device endpoints require server state `READY` and appropriate `Bearer` key a
 | `GET /api/v1/channels/:channelId/notifications/:notificationId` | `cns_...` | Subscriber | Fetches a single ciphertext notification |
 | `PUT /api/v1/channels/:channelId/subscribers/self` | `cns_...` | Subscriber | Updates subscriber settings (FCM token, delivery mode) |
 | `DELETE /api/v1/channels/:channelId/subscribers/self` | `cns_...` | Subscriber | Self-unsubscribes from the channel |
+| `GET /api/v1/channels/:channelId/subscribers/self/silence` | `cns_...` | Subscriber | Lists active channel and per-app silence rules for this subscriber |
+| `PUT /api/v1/channels/:channelId/subscribers/self/silence` | `cns_...` | Subscriber | Sets a temporary silence for the channel (`appName: null`) or a specific app |
+| `DELETE /api/v1/channels/:channelId/subscribers/self/silence` | `cns_...` | Subscriber | Clears channel silence, a specific app silence (`?appName=...`), or all (`?all=true`) |
 
 ### 10.1 Publishing Notifications
 `POST /api/v1/channels/:channelId/notifications`:
@@ -494,11 +510,23 @@ All device endpoints require server state `READY` and appropriate `Bearer` key a
 ```
 Subscribers page through notifications using `since = last receivedAt`.
 
+### 10.3 Subscriber Silence Rules
+`PUT /api/v1/channels/:channelId/subscribers/self/silence`:
+```json
+{
+  "appName": "WhatsApp",
+  "durationMs": 3600000
+}
+```
+- Omit `appName` (or pass `null`) to silence the entire channel for this subscriber; provide `appName` to silence only notifications matching that app name (case-insensitive).
+- Provide either `durationMs` (positive integer, up to 30 days) or `silencedUntil` (future epoch ms).
+- `DELETE /api/v1/channels/:channelId/subscribers/self/silence` clears the channel-wide silence, or clears a specific app silence when `?appName=<name>` is passed (or all silences with `?all=true`).
+
 ---
 
 ## 11. Push Dispatch Architecture (`pushService.ts`)
 
-The push service dispatches FCM messages in batches of up to 500 recipients using `messaging.sendEach()`. All pushes include the base payload fields: `cn: "1"`, `type`, and `channelId`.
+The push service dispatches FCM messages in batches of up to 500 recipients using `messaging.sendEach()`. All pushes include the base payload fields: `cn: "1"`, `type`, and `channelId`. Before queuing an FCM message for a subscriber, `pushService.dispatch()` checks `subscriberService.isSubscriberSilenced(sub.subscriber_id, n.app_name)` and skips push delivery if the channel or app is currently silenced (applies uniformly to both `battery_saver` and `immediate_preview` modes; the encrypted notification remains stored on the server for catch-up sync).
 
 ### 11.1 Battery Saver Mode (`battery_saver`)
 Subscribers in battery saver mode receive standard **FCM Notification Messages**. Google Play Services displays the notification directly without launching or waking the app process:

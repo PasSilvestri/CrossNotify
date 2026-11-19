@@ -61,6 +61,33 @@ class CrossNotifyMessagingService : FirebaseMessagingService() {
                         repository.updateRelayDeviceName(channelId, newName)
                     }
                 }
+                "notifications_handled" -> {
+                    val itemsJson = data["items"].orEmpty()
+                    if (itemsJson.isNotBlank()) {
+                        Log.i(TAG, "Received notifications_handled push for channel $channelId")
+                        repository.handleIncomingNotificationsHandled(channelId, itemsJson)
+                    }
+                }
+                "execute_action" -> {
+                    val notificationId = data["notificationId"]?.takeIf { it.isNotBlank() } ?: return@launch
+                    val actionId = data["actionId"]?.takeIf { it.isNotBlank() } ?: return@launch
+                    val iv = data["iv"]?.takeIf { it.isNotBlank() } ?: return@launch
+                    val ct = data["ct"]?.takeIf { it.isNotBlank() } ?: return@launch
+                    Log.i(TAG, "Received execute_action push for channel $channelId notification=$notificationId")
+                    repository.handleIncomingExecuteAction(
+                        channelId = channelId,
+                        notificationId = notificationId,
+                        actionId = actionId,
+                        iv = iv,
+                        ciphertext = ct
+                    )
+                }
+                "subscriber_permissions_updated" -> {
+                    val incomingSubId = data["subscriberId"]?.takeIf { it.isNotBlank() }
+                    val allowActions = data["allowActions"] != "0"
+                    Log.i(TAG, "Received subscriber_permissions_updated push for channel $channelId (allowActions=$allowActions)")
+                    repository.handleIncomingPermissionsUpdated(channelId, incomingSubId, allowActions)
+                }
                 "notification" -> {
                     val notificationId = data["notificationId"]?.takeIf { it.isNotBlank() } ?: return@launch
                     val iv = data["iv"].orEmpty()

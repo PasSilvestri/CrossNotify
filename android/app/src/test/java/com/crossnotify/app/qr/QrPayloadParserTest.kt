@@ -51,7 +51,28 @@ class QrPayloadParserTest {
         assertEquals("Pixel 8 Pro", parsed.payload.channel.relayDevice)
         assertEquals("cns_subkey1234567890", parsed.payload.apiKey)
         assertEquals("A256GCM", parsed.payload.e2e.alg)
+        assertTrue(parsed.payload.channel.allowActions)
         assertTrue(QrPayloadParser.isInsecureHttp(parsed.payload.server.url))
+    }
+
+    @Test
+    fun `parses cn-sub QR payload with allowActions disabled`() {
+        val json = """
+            {
+              "t": "cn-sub",
+              "v": 1,
+              "server":   { "url": "https://notify.example.com", "name": "Home" },
+              "channel":  { "id": "3f1c-uuid", "name": "Work phone", "allowActions": false },
+              "apiKey":   "cns_subkey1234567890",
+              "firebase": { "projectId": "crossnotify-xyz", "appId": "1:1234567890:android:abc123", "apiKey": "AIzaSyTest", "senderId": "1234567890" },
+              "e2e":      { "alg": "A256GCM", "kid": "k1", "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }
+            }
+        """.trimIndent()
+
+        val result = QrPayloadParser.parse(json)
+        assertTrue(result.isSuccess)
+        val parsed = result.getOrThrow() as ParsedQrPayload.SubscriberPairing
+        assertFalse(parsed.payload.channel.allowActions)
     }
 
     @Test

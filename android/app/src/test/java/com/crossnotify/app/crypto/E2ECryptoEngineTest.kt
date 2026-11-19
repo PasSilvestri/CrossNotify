@@ -263,4 +263,97 @@ class E2ECryptoEngineTest {
         assertEquals("Telegram", decrypted.app)
         assertEquals(payload, decrypted)
     }
+
+    @Test
+    fun `encrypt and decrypt round-trip preserves media image and notification actions`() {
+        val e2eKey = engine.generateE2EKey()
+        val channelId = "channel-media-001"
+        val notificationId = "notif-media-001"
+        val fakeImageBase64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////"
+
+        val payload = NotificationPlaintext(
+            v = 1,
+            id = notificationId,
+            pkg = "com.whatsapp",
+            app = "WhatsApp",
+            title = "Bob",
+            text = "Sent a photo",
+            postedAt = 1792014058000L,
+            origin = OriginInfo(id = notificationId, hops = 0, path = listOf(channelId)),
+            image = fakeImageBase64,
+            actions = listOf(
+                NotificationActionMeta(
+                    idx = 0,
+                    title = "Reply",
+                    isReply = true,
+                    replyLabel = "Reply to Bob",
+                    choices = listOf("Nice!", "On my way")
+                ),
+                NotificationActionMeta(
+                    idx = 1,
+                    title = "Mark as read",
+                    isReply = false
+                )
+            )
+        )
+
+        val encrypted = engine.encrypt(e2eKey, channelId, payload)
+        val decrypted = engine.decrypt(
+            e2eKey = e2eKey,
+            channelId = channelId,
+            notificationId = notificationId,
+            ivBase64Url = encrypted.iv,
+            ciphertextBase64Url = encrypted.ciphertext
+        )
+
+        assertEquals(fakeImageBase64, decrypted.image)
+        assertEquals(2, decrypted.actions.size)
+        assertTrue(decrypted.actions[0].isReply)
+        assertEquals("Reply to Bob", decrypted.actions[0].replyLabel)
+        assertEquals(listOf("Nice!", "On my way"), decrypted.actions[0].choices)
+        assertEquals("Mark as read", decrypted.actions[1].title)
+    }
+
+    @Test
+    fun `encryptAction and decryptAction round-trip with strict AAD validation`() {
+        val e2eKey = engine.generateE2EKey()
+        val channelId = "channel-act-001"
+        val notificationId = "notif-act-001"
+        val actionId = "act-uuid-001"
+
+        val actionPayload = NotificationActionPayload(
+            v = 1,
+            notificationId = notificationId,
+            actionId = actionId,
+            actionIndex = 0,
+            replyText = "Sounds great, see you soon!",
+            ts = 1792014059000L
+        )
+
+        val encrypted = engine.encryptAction(e2eKey, channelId, actionPayload)
+        val decrypted = engine.decryptAction(
+            e2eKey = e2eKey,
+            channelId = channelId,
+            notificationId = notificationId,
+            actionId = actionId,
+            ivBase64Url = encrypted.iv,
+            ciphertextBase64Url = encrypted.ciphertext
+        )
+        assertEquals(actionPayload, decrypted)
+
+        // Swapping actionId fails GCM authentication
+        try {
+            engine.decryptAction(
+                e2eKey = e2eKey,
+                channelId = channelId,
+                notificationId = notificationId,
+                actionId = "act-uuid-wrong",
+                ivBase64Url = encrypted.iv,
+                ciphertextBase64Url = encrypted.ciphertext
+            )
+            fail("Expected AEADBadTagException on mismatched actionId")
+        } catch (_: AEADBadTagException) {
+            // Expected
+        }
+    }
 }

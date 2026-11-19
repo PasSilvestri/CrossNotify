@@ -2,15 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createApp, type AppContext } from '../../src/app.js';
-import type { PushService, PushResult } from '../../src/services/pushService.js';
+import type { PushService, PushResult, ExecuteActionPushPayload } from '../../src/services/pushService.js';
 import type { ChannelRow } from '../../src/services/channelService.js';
-import type { NotificationRow } from '../../src/services/notificationService.js';
+import type { HandledNotificationEvent, NotificationRow } from '../../src/services/notificationService.js';
 import type { ServiceAccount, GoogleServices } from '../../src/services/firebaseConfigService.js';
 
 export class MockPushService implements PushService {
   public dispatched: Array<{ channel: ChannelRow; notification: NotificationRow }> = [];
   public revokedCalls: Array<{ channel: ChannelRow; tokens: string[]; subscriberId?: string }> = [];
   public relayNameUpdatedCalls: Array<{ channel: ChannelRow; tokens: string[]; newRelayDeviceName: string }> = [];
+  public handledCalls: Array<{ channel: ChannelRow; tokens: string[]; items: HandledNotificationEvent[] }> = [];
+  public executeActionCalls: Array<{ channel: ChannelRow; relayFcmToken: string; payload: ExecuteActionPushPayload }> = [];
+  public permissionsUpdatedCalls: Array<{ channel: ChannelRow; token: string; subscriberId: string; allowActions: boolean }> = [];
 
   async dispatch(channel: ChannelRow, n: NotificationRow): Promise<PushResult> {
     this.dispatched.push({ channel, notification: n });
@@ -25,10 +28,26 @@ export class MockPushService implements PushService {
     this.relayNameUpdatedCalls.push({ channel, tokens, newRelayDeviceName });
   }
 
+  async sendNotificationsHandled(channel: ChannelRow, tokens: string[], items: HandledNotificationEvent[]): Promise<void> {
+    this.handledCalls.push({ channel, tokens, items });
+  }
+
+  async sendExecuteAction(channel: ChannelRow, relayFcmToken: string, payload: ExecuteActionPushPayload): Promise<boolean> {
+    this.executeActionCalls.push({ channel, relayFcmToken, payload });
+    return true;
+  }
+
+  async sendSubscriberPermissionsUpdated(channel: ChannelRow, token: string, subscriberId: string, allowActions: boolean): Promise<void> {
+    this.permissionsUpdatedCalls.push({ channel, token, subscriberId, allowActions });
+  }
+
   reset() {
     this.dispatched = [];
     this.revokedCalls = [];
     this.relayNameUpdatedCalls = [];
+    this.handledCalls = [];
+    this.executeActionCalls = [];
+    this.permissionsUpdatedCalls = [];
   }
 }
 

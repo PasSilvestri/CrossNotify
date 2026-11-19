@@ -19,6 +19,15 @@ data class OriginInfo(
 )
 
 @Serializable
+data class NotificationActionMeta(
+    val idx: Int,
+    val title: String,
+    val isReply: Boolean = false,
+    val replyLabel: String? = null,
+    val choices: List<String> = emptyList()
+)
+
+@Serializable
 data class NotificationPlaintext(
     val v: Int = 1,
     val id: String,
@@ -31,7 +40,19 @@ data class NotificationPlaintext(
     val category: String = "",
     val postedAt: Long,
     val origin: OriginInfo,
-    val icon: String? = null
+    val icon: String? = null,
+    val image: String? = null,
+    val actions: List<NotificationActionMeta> = emptyList()
+)
+
+@Serializable
+data class NotificationActionPayload(
+    val v: Int = 1,
+    val notificationId: String,
+    val actionId: String,
+    val actionIndex: Int,
+    val replyText: String? = null,
+    val ts: Long = System.currentTimeMillis()
 )
 
 data class EncryptedNotificationBlob(
@@ -59,6 +80,9 @@ class E2ECryptoEngine @Inject constructor() {
         const val MAX_TITLE_CHARS = 200
         const val MAX_TEXT_CHARS = 1000
         const val MAX_BIG_TEXT_CHARS = 4000
+        const val MAX_IMAGE_BASE64_CHARS = 240_000
+        const val MAX_REPLY_TEXT_CHARS = 2000
+        const val MAX_ACTIONS = 5
 
         private val json = Json {
             ignoreUnknownKeys = true
@@ -72,11 +96,22 @@ class E2ECryptoEngine @Inject constructor() {
         }
 
         fun sanitizePayload(payload: NotificationPlaintext): NotificationPlaintext {
+            val sanitizedActions = payload.actions.take(MAX_ACTIONS).map { action ->
+                action.copy(
+                    title = truncateWithEllipsis(action.title.trim(), 48),
+                    replyLabel = action.replyLabel?.trim()?.takeIf { it.isNotBlank() }
+                        ?.let { truncateWithEllipsis(it, 64) },
+                    choices = action.choices.take(5).map { truncateWithEllipsis(it.trim(), 48) }
+                        .filter { it.isNotBlank() }
+                )
+            }
             return payload.copy(
                 title = truncateWithEllipsis(payload.title, MAX_TITLE_CHARS),
                 text = truncateWithEllipsis(payload.text, MAX_TEXT_CHARS),
                 bigText = truncateWithEllipsis(payload.bigText, MAX_BIG_TEXT_CHARS),
-                icon = payload.icon?.takeIf { it.length <= 15000 }
+                icon = payload.icon?.takeIf { it.length <= 15000 },
+                image = payload.image?.takeIf { it.length <= MAX_IMAGE_BASE64_CHARS },
+                actions = sanitizedActions
             )
         }
 
@@ -84,6 +119,13 @@ class E2ECryptoEngine @Inject constructor() {
             require(channelId.isNotBlank()) { "channelId must not be blank" }
             require(notificationId.isNotBlank()) { "notificationId must not be blank" }
             return "cn1|$channelId|$notificationId".toByteArray(Charsets.UTF_8)
+        }
+
+        fun buildActionAad(channelId: String, notificationId: String, actionId: String): ByteArray {
+            require(channelId.isNotBlank()) { "channelId must not be blank" }
+            require(notificationId.isNotBlank()) { "notificationId must not be blank" }
+            require(actionId.isNotBlank()) { "actionId must not be blank" }
+            return "cn1-act|$channelId|$notificationId|$actionId".toByteArray(Charsets.UTF_8)
         }
 
         fun encodeBase64Url(bytes: ByteArray): String {
@@ -183,6 +225,91 @@ class E2ECryptoEngine @Inject constructor() {
         )
         require(parsed.id == notificationId) {
             "Decrypted payload notificationId (${parsed.id}) does not match AAD notificationId ($notificationId)"
+        }
+        return parsed
+    }
+
+    /**
+     * Encrypts a subscriber-to-relay [NotificationActionPayload] using AES-256-GCM
+     * bound to `cn1-act|<channelId>|<notificationId>|<actionId>`.
+     */
+    fun encryptAction(
+        e2eKey: ByteArray,
+        channelId: String,
+        payload: NotificationActionPayload,
+        ivOverride: ByteArray? = null
+    ): EncryptedNotificationBlob {
+        require(e2eKey.size == KEY_LENGTH_BYTES) {
+            "E2E key must be exactly $KEY_LENGTH_BYTES bytes (got ${e2eKey.size})"
+        }
+        val sanitized = payload.copy(
+            replyText = payload.replyText?.let { truncateWithEllipsis(it, MAX_REPLY_TEXT_CHARS) }
+        )
+        val plaintextBytes = json.encodeToString(sanitized).toByteArray(Charsets.UTF_8)
+
+        val iv = if (ivOverride != null) {
+            require(ivOverride.size == IV_LENGTH_BYTES) {
+                "IV override must be $IV_LENGTH_BYTES bytes"
+            }
+            ivOverride.copyOf()
+        } else {
+            ByteArray(IV_LENGTH_BYTES).also { secureRandom.nextBytes(it) }
+        }
+
+        val aad = buildActionAad(channelId, sanitized.notificationId, sanitized.actionId)
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        val keySpec = SecretKeySpec(e2eKey, "AES")
+        val gcmSpec = GCMParameterSpec(GCM_TAG_BITS, iv)
+        cipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
+        cipher.updateAAD(aad)
+
+        val ciphertextWithTag = cipher.doFinal(plaintextBytes)
+        return EncryptedNotificationBlob(
+            iv = encodeBase64Url(iv),
+            ciphertext = encodeBase64Url(ciphertextWithTag)
+        )
+    }
+
+    /**
+     * Decrypts a subscriber-to-relay [NotificationActionPayload] and validates AAD bindings.
+     */
+    fun decryptAction(
+        e2eKey: ByteArray,
+        channelId: String,
+        notificationId: String,
+        actionId: String,
+        ivBase64Url: String,
+        ciphertextBase64Url: String
+    ): NotificationActionPayload {
+        require(e2eKey.size == KEY_LENGTH_BYTES) {
+            "E2E key must be exactly $KEY_LENGTH_BYTES bytes (got ${e2eKey.size})"
+        }
+
+        val iv = decodeBase64Url(ivBase64Url)
+        require(iv.size == IV_LENGTH_BYTES) {
+            "Decoded IV must be exactly $IV_LENGTH_BYTES bytes (got ${iv.size})"
+        }
+        val ciphertextWithTag = decodeBase64Url(ciphertextBase64Url)
+        require(ciphertextWithTag.size >= 16) {
+            "Ciphertext too short to contain GCM authentication tag"
+        }
+
+        val aad = buildActionAad(channelId, notificationId, actionId)
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        val keySpec = SecretKeySpec(e2eKey, "AES")
+        val gcmSpec = GCMParameterSpec(GCM_TAG_BITS, iv)
+        cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
+        cipher.updateAAD(aad)
+
+        val decryptedBytes = cipher.doFinal(ciphertextWithTag)
+        val parsed = json.decodeFromString<NotificationActionPayload>(
+            String(decryptedBytes, Charsets.UTF_8)
+        )
+        require(parsed.notificationId == notificationId) {
+            "Decrypted action notificationId (${parsed.notificationId}) does not match AAD ($notificationId)"
+        }
+        require(parsed.actionId == actionId) {
+            "Decrypted actionId (${parsed.actionId}) does not match AAD ($actionId)"
         }
         return parsed
     }

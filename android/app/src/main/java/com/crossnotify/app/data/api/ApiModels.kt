@@ -42,6 +42,7 @@ data class SubscriberDeviceDto(
     val deviceName: String? = null,
     val deviceModel: String? = null,
     val deliveryMode: String = "battery_saver",
+    val allowActions: Boolean = true,
     val status: String = "active",
     val createdAt: Long = 0L,
     val activatedAt: Long? = null,
@@ -69,7 +70,8 @@ data class ChannelInfoResponse(
     val relayDeviceName: String? = null,
     val subscriberCount: Int = 0,
     val notificationTtlHours: Int = 48,
-    val subscribers: List<SubscriberDeviceDto>? = null
+    val subscribers: List<SubscriberDeviceDto>? = null,
+    val allowActions: Boolean? = null
 )
 
 @Serializable
@@ -88,10 +90,28 @@ data class PublishNotificationResponse(
 )
 
 @Serializable
+data class MintSubscriberKeyRequest(
+    val allowActions: Boolean = true
+)
+
+@Serializable
 data class MintSubscriberKeyResponse(
     val subscriberId: String,
     val apiKey: String,
-    val expiresAt: Long
+    val expiresAt: Long,
+    val allowActions: Boolean = true
+)
+
+@Serializable
+data class UpdateSubscriberPermissionsRequest(
+    val allowActions: Boolean
+)
+
+@Serializable
+data class UpdateSubscriberPermissionsResponse(
+    val status: String = "ok",
+    val subscriberId: String,
+    val allowActions: Boolean
 )
 
 @Serializable
@@ -107,7 +127,8 @@ data class SubscriberInitResponse(
     val subscriberId: String,
     val channelId: String,
     val channelName: String,
-    val deliveryMode: String
+    val deliveryMode: String,
+    val allowActions: Boolean = true
 )
 
 @Serializable
@@ -131,7 +152,41 @@ data class RemoteNotificationDto(
     val ciphertext: String,
     val appName: String? = null,
     val timestamp: Long? = null,
-    val receivedAt: Long
+    val receivedAt: Long,
+    val handledAt: Long? = null,
+    val handledReason: String? = null
+)
+
+@Serializable
+data class DismissNotificationItem(
+    val notificationId: String,
+    val reason: String = "dismissed"
+)
+
+@Serializable
+data class DismissNotificationsRequest(
+    val items: List<DismissNotificationItem>
+)
+
+@Serializable
+data class DismissNotificationsResponse(
+    val status: String = "ok",
+    val updatedCount: Int = 0
+)
+
+@Serializable
+data class ExecuteActionRequest(
+    val actionId: String,
+    val iv: String,
+    val ciphertext: String
+)
+
+@Serializable
+data class ExecuteActionResponse(
+    val status: String = "ok",
+    val dispatched: Boolean = true,
+    val handledAt: Long = 0L,
+    val handledReason: String = "actioned"
 )
 
 @Serializable
@@ -184,5 +239,7 @@ class CrossNotifyApiException(
     override val message: String
 ) : Exception("HTTP $httpCode ($errorCode): $message") {
     val isRevokedOrUnauthorized: Boolean
-        get() = httpCode == 401 || httpCode == 403 || (httpCode == 409 && errorCode == "channel_revoked")
+        get() = httpCode == 401 ||
+            (httpCode == 403 && errorCode != "actions_not_allowed") ||
+            (httpCode == 409 && errorCode == "channel_revoked")
 }

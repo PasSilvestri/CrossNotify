@@ -3,6 +3,7 @@ package com.crossnotify.app.di
 import android.content.Context
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.crossnotify.app.data.db.CrossNotifyDatabase
 import com.crossnotify.app.data.db.InboxDao
@@ -22,6 +23,14 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
+    private val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE subscriptions ADD COLUMN allowActions INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE inbox ADD COLUMN handledAt INTEGER")
+            db.execSQL("ALTER TABLE inbox ADD COLUMN handledReason TEXT")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): CrossNotifyDatabase {
@@ -30,6 +39,7 @@ object AppModule {
             CrossNotifyDatabase::class.java,
             "crossnotify.db"
         )
+            .addMigrations(MIGRATION_1_2)
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) {
                     super.onOpen(db)

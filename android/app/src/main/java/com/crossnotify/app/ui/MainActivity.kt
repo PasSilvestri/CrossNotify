@@ -276,6 +276,7 @@ private fun MainAppScaffold(
     generatedSubQr?.let { qrState ->
         ShareSubscriberQrDialog(
             qrState = qrState,
+            onToggleAllowActions = { allow -> viewModel.toggleGeneratedQrAllowActions(allow) },
             onDismiss = { viewModel.dismissGeneratedSubQr() }
         )
     }

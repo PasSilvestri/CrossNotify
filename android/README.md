@@ -20,7 +20,9 @@ CrossNotify allows an Android phone to act as a **Relay** (capturing incoming no
 - **Hardware-Backed Keystore Security**: Database credentials and E2E keys are encrypted at rest using an **Android Keystore** AES-256-GCM master key (`cn_master`), backed by StrongBox when available on supported hardware.
 - **Biometric QR Reveal**: Sharing a channel to a subscriber requires biometric or device-credential verification (`BiometricPrompt`). The pairing QR code is displayed with `FLAG_SECURE` (preventing screenshots and screen recording) and automatically self-destructs after 60 seconds.
 - **App Filtering**: Choose exactly which installed applications to forward per relay channel using an **Allow-list** or **Deny-list**.
-- **Offline Outbox & Catch-up Sync**: Notifications sent while offline are queued in Room and delivered by **WorkManager** when network connectivity is restored. Subscribers catch up on missed notifications upon opening the app.
+- **Offline Outbox & Auto Catch-up Sync**: Notifications sent while offline are queued in Room and delivered by **WorkManager** when network connectivity is restored. Subscribers automatically download and decrypt missed notifications when opening the Inbox or Subscriptions screens (or switching channel filters), even if tray notifications were never tapped.
+- **Timed Silence ("Silence for...")**: Temporarily mute notifications for an entire subscribed relay channel or a specific app on that channel (`1h`, `3h`, `5h`, `8h`, or custom duration). Enforced server-side so it works identically for both `battery_saver` and `immediate_preview` modes while still keeping notifications in history.
+- **Battery-Friendly Notification Retention**: Per-channel local retention policy (custom hours, days, or months, or **Keep indefinitely**). Expired notifications are pruned via piggybacked SQLite cleanup during normal app/sync activity with zero extra background wakeups.
 - **Daisy Chaining & Loop Prevention**: Forward incoming subscriptions to other relay channels across different servers with built-in hop counting and loop detection (maximum 3 hops).
 
 ---

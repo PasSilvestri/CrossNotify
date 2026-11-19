@@ -25,7 +25,8 @@ data class QrSubChannelInfo(
     val id: String,
     val name: String,
     val color: String? = "#0077b6",
-    val relayDevice: String? = null
+    val relayDevice: String? = null,
+    val allowActions: Boolean = true
 )
 
 @Serializable

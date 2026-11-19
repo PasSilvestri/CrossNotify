@@ -35,6 +35,7 @@ Everything is managed through a built-in, responsive **web dashboard**, and pair
 - 🔑 **Per-Device API Keys & 1-Click Revocation**: Relays and individual subscribers receive dedicated API keys. The server dashboard allows instantly revoking any individual subscriber without disrupting other devices or the relay channel.
 - 🖥️ **Turnkey Web Dashboard**: Complete web interface for first-run setup, encrypted Firebase credential management, relay channel provisioning, subscriber auditing, and retention configuration.
 - 🛡️ **Defense in Depth**: Argon2id admin passwords, single-use server setup token, AES-256-GCM encrypted database credentials, Android Keystore StrongBox integration, and `FLAG_SECURE` biometric-gated QR sharing.
+- 🔕 **Timed Silence & Local Retention**: Subscribers can temporarily silence all notifications from a relay channel—or just a specific app on it—for preset (`1h`, `3h`, `5h`, `8h`) or custom durations across both delivery modes (silenced messages are still saved to history), and configure battery-friendly per-channel local retention (hours/days/months or keep indefinitely).
 - ⛓️ **Daisy Chaining**: Seamlessly forward notifications across multiple servers (e.g., Phone A → Phone B on Server 1, Phone B → Phone C on Server 2) with built-in loop detection and hop tracking.
 
 ---

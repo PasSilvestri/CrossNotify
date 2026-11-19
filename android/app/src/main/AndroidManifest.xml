@@ -111,6 +111,14 @@
             </intent-filter>
         </service>
 
+        <receiver
+            android:name=".service.NotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.crossnotify.app.EXECUTE_NOTIFICATION_ACTION" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

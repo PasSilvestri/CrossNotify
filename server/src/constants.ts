@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '1.1.0';
+export const SERVER_VERSION = '1.2.0';
 export const ANDROID_PACKAGE_NAME = 'com.crossnotify.app';
 
 export const LIMITS = {
@@ -10,7 +10,8 @@ export const LIMITS = {
   USERNAME_MAX: 32,
   USERNAME_REGEX: /^[a-zA-Z0-9._-]+$/,
   APP_NAME_MAX: 64,
-  MAX_NOTIFICATION_CIPHERTEXT_BYTES: 16 * 1024, // 16 KiB decoded
+  MAX_NOTIFICATION_CIPHERTEXT_BYTES: 256 * 1024, // 256 KiB decoded (supports media images + actions)
+  MAX_ACTION_CIPHERTEXT_BYTES: 16 * 1024, // 16 KiB decoded (encrypted reply/action payload)
   FCM_DATA_MAX_BYTES: 3500, // Threshold to switch to fetch: '1'
 };
 

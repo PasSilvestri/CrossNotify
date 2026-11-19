@@ -1,5 +1,6 @@
 package com.crossnotify.app.data.repository
 
+import android.app.Notification
 import android.content.Context
 import android.os.Build
 import android.util.Log
@@ -16,6 +17,8 @@ import com.crossnotify.app.BuildConfig
 import com.crossnotify.app.crypto.CryptoManager
 import com.crossnotify.app.crypto.DaisyChainPolicy
 import com.crossnotify.app.crypto.E2ECryptoEngine
+import com.crossnotify.app.crypto.NotificationActionMeta
+import com.crossnotify.app.crypto.NotificationActionPayload
 import com.crossnotify.app.crypto.NotificationPlaintext
 import com.crossnotify.app.crypto.OriginInfo
 import com.crossnotify.app.data.api.ChannelInfoResponse
@@ -23,6 +26,10 @@ import com.crossnotify.app.data.api.ConnectionTestResult
 import com.crossnotify.app.data.api.CrossNotifyApiClient
 import com.crossnotify.app.data.api.CrossNotifyApiException
 import com.crossnotify.app.data.api.CrossNotifyApiService
+import com.crossnotify.app.data.api.DismissNotificationItem
+import com.crossnotify.app.data.api.DismissNotificationsRequest
+import com.crossnotify.app.data.api.ExecuteActionRequest
+import com.crossnotify.app.data.api.MintSubscriberKeyRequest
 import com.crossnotify.app.data.api.PublishNotificationRequest
 import com.crossnotify.app.data.api.RelayInitRequest
 import com.crossnotify.app.data.api.RelayUpdateRequest
@@ -30,6 +37,7 @@ import com.crossnotify.app.data.api.RemoteNotificationDto
 import com.crossnotify.app.data.api.SubscriberInitRequest
 import com.crossnotify.app.data.api.SubscriberSilenceRequest
 import com.crossnotify.app.data.api.SubscriberUpdateSelfRequest
+import com.crossnotify.app.data.api.UpdateSubscriberPermissionsRequest
 import com.crossnotify.app.data.db.InboxDao
 import com.crossnotify.app.data.db.InboxEntity
 import com.crossnotify.app.data.db.OutboxDao
@@ -52,11 +60,14 @@ import com.crossnotify.app.qr.QrFirebaseInfo
 import com.crossnotify.app.qr.QrPayloadParser
 import com.crossnotify.app.qr.QrServerInfo
 import com.crossnotify.app.qr.QrSubChannelInfo
+import com.crossnotify.app.service.RelayNotificationRegistry
 import com.crossnotify.app.util.NotificationHelper
 import com.crossnotify.app.worker.CatchUpSyncWorker
 import com.crossnotify.app.worker.OutboxWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -66,6 +77,19 @@ data class DecryptedInboxItem(
     val entity: InboxEntity,
     val subscription: SubscriptionEntity?,
     val plaintext: NotificationPlaintext?
+)
+
+data class MintedSubscriberQrResult(
+    val subscriberId: String,
+    val qrPayload: CnSubQrPayload,
+    val expiresAt: Long
+)
+
+@Serializable
+private data class HandledPushItemDto(
+    val id: String,
+    val r: String? = null,
+    val at: Long? = null
 )
 
 @Singleton
@@ -82,11 +106,18 @@ class CrossNotifyRepository @Inject constructor(
     private val apiClient: CrossNotifyApiClient,
     private val firebaseProjectManager: FirebaseProjectManager,
     private val notificationHelper: NotificationHelper,
-    private val appPreferences: AppPreferences
+    private val appPreferences: AppPreferences,
+    private val relayNotificationRegistry: RelayNotificationRegistry
 ) {
+    sealed class RemoteActionOutcome {
+        data class Executed(val handledAt: Long) : RemoteActionOutcome()
+        data class AlreadyHandled(val handledAt: Long, val reason: String?) : RemoteActionOutcome()
+    }
+
     companion object {
         private const val TAG = "CrossNotifyRepository"
         private const val SEVEN_DAYS_MS = 7L * 24L * 60L * 60L * 1000L
+        private val pushJson = Json { ignoreUnknownKeys = true }
     }
 
     fun observeServers(): Flow<List<ServerEntity>> = serverDao.observeAll()
@@ -97,6 +128,7 @@ class CrossNotifyRepository @Inject constructor(
     fun observeSubscription(channelId: String): Flow<SubscriptionEntity?> = subscriptionDao.observeById(channelId)
     suspend fun getSubscription(channelId: String): SubscriptionEntity? = subscriptionDao.getById(channelId)
     fun observeInbox(): Flow<List<InboxEntity>> = inboxDao.observeAll()
+    fun observeInboxItem(notificationId: String): Flow<InboxEntity?> = inboxDao.observeById(notificationId)
     fun observeOutbox(): Flow<List<OutboxEntity>> = outboxDao.observeAll()
 
     /**
@@ -249,7 +281,10 @@ class CrossNotifyRepository @Inject constructor(
      * Requests a unique subscriber API key from the server and generates a pairing QR code payload
      * containing the channel encryption key and server connection details for in-person sharing.
      */
-    suspend fun createSubscriberPairingQrPayload(channelId: String): Pair<CnSubQrPayload, Long> {
+    suspend fun createSubscriberPairingQrPayload(
+        channelId: String,
+        allowActions: Boolean = true
+    ): MintedSubscriberQrResult {
         val channel = relayChannelDao.getById(channelId)
             ?: throw IllegalStateException("Relay channel not found")
         val server = serverDao.getById(channel.serverId)
@@ -267,7 +302,8 @@ class CrossNotifyRepository @Inject constructor(
         val mintResponse = apiClient.unwrapResponse(
             service.mintSubscriberKey(
                 authHeader = apiClient.bearerHeader(relayApiKey),
-                channelId = channel.channelId
+                channelId = channel.channelId,
+                body = MintSubscriberKeyRequest(allowActions = allowActions)
             )
         )
 
@@ -279,7 +315,8 @@ class CrossNotifyRepository @Inject constructor(
                 id = channel.channelId,
                 name = channel.name,
                 color = channel.color,
-                relayDevice = appPreferences.deviceName.value
+                relayDevice = appPreferences.deviceName.value,
+                allowActions = mintResponse.allowActions
             ),
             apiKey = mintResponse.apiKey,
             firebase = QrFirebaseInfo(
@@ -295,7 +332,37 @@ class CrossNotifyRepository @Inject constructor(
             )
         )
 
-        return qrPayload to mintResponse.expiresAt
+        return MintedSubscriberQrResult(
+            subscriberId = mintResponse.subscriberId,
+            qrPayload = qrPayload,
+            expiresAt = mintResponse.expiresAt
+        )
+    }
+
+    /**
+     * Updates a pending or active subscriber's action execution permission on the server.
+     */
+    suspend fun updateSubscriberPermissions(
+        channelId: String,
+        subscriberId: String,
+        allowActions: Boolean
+    ): Boolean {
+        val channel = relayChannelDao.getById(channelId)
+            ?: throw IllegalStateException("Relay channel not found")
+        val server = serverDao.getById(channel.serverId)
+            ?: throw IllegalStateException("Server configuration not found")
+
+        val relayApiKey = cryptoManager.unwrapString(channel.apiKeyEnc)
+        val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+        val response = apiClient.unwrapResponse(
+            service.updateSubscriberPermissions(
+                authHeader = apiClient.bearerHeader(relayApiKey),
+                channelId = channelId,
+                subscriberId = subscriberId,
+                body = UpdateSubscriberPermissionsRequest(allowActions = allowActions)
+            )
+        )
+        return response.allowActions
     }
 
     /**
@@ -365,18 +432,23 @@ class CrossNotifyRepository @Inject constructor(
 
     /**
      * Encrypts and enqueues an intercepted system notification across all active channels
-     * whose app filter rules accept the sender package.
+     * whose app filter rules accept the sender package, registering its live actions & key
+     * in [RelayNotificationRegistry] for bidirectional dismissal and remote action execution.
      */
     suspend fun captureAndQueueNotification(
         packageName: String,
         appLabel: String,
         appIconBase64: String?,
+        imageBase64: String? = null,
         title: String,
         text: String,
         subText: String,
         bigText: String,
         category: String,
         postedAt: Long,
+        sbnKey: String = "",
+        actionsMeta: List<NotificationActionMeta> = emptyList(),
+        rawActions: List<Notification.Action> = emptyList(),
         shouldSendForChannel: (channelId: String) -> Boolean
     ) {
         val activeChannels = relayChannelDao.getActive()
@@ -398,6 +470,7 @@ class CrossNotifyRepository @Inject constructor(
                 pkg = packageName,
                 app = if (channel.sendAppName) appLabel else "",
                 icon = if (channel.sendAppName) appIconBase64 else null,
+                image = imageBase64,
                 title = title,
                 text = text,
                 subText = subText,
@@ -408,10 +481,217 @@ class CrossNotifyRepository @Inject constructor(
                     id = notificationId,
                     hops = 0,
                     path = listOf(channel.channelId)
-                )
+                ),
+                actions = actionsMeta
             )
 
+            if (sbnKey.isNotBlank()) {
+                relayNotificationRegistry.register(
+                    channelId = channel.channelId,
+                    notificationId = notificationId,
+                    sbnKey = sbnKey,
+                    actions = rawActions
+                )
+            }
+
             enqueueEncryptedToOutbox(channel, plaintext)
+        }
+    }
+
+    /**
+     * Sends a batched notification dismissal/open event from the relay phone to the server
+     * so all connected subscribers clear those notifications from their status bars.
+     */
+    suspend fun dispatchDismissalsBatch(
+        channelId: String,
+        items: List<DismissNotificationItem>
+    ) {
+        if (items.isEmpty()) return
+        val channel = relayChannelDao.getById(channelId) ?: return
+        if (!channel.active) return
+        val server = serverDao.getById(channel.serverId) ?: return
+
+        runCatching {
+            val relayApiKey = cryptoManager.unwrapString(channel.apiKeyEnc)
+            val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+            val authHeader = apiClient.bearerHeader(relayApiKey)
+
+            items.chunked(100).forEach { chunk ->
+                apiClient.unwrapResponse(
+                    service.dismissNotifications(
+                        authHeader = authHeader,
+                        channelId = channelId,
+                        body = DismissNotificationsRequest(items = chunk)
+                    )
+                )
+            }
+        }.onFailure { err ->
+            Log.w(TAG, "Failed to dispatch dismissal batch for channel $channelId: ${err.message}")
+        }
+    }
+
+    /**
+     * Processes a `notifications_handled` FCM push on a subscriber device:
+     * marks each notification handled in Room (preserving it in Inbox for retention)
+     * and dismisses it from the status bar.
+     */
+    suspend fun handleIncomingNotificationsHandled(channelId: String, itemsJson: String) {
+        val parsed = runCatching {
+            pushJson.decodeFromString<List<HandledPushItemDto>>(itemsJson)
+        }.getOrNull() ?: return
+
+        val now = System.currentTimeMillis()
+        for (item in parsed) {
+            if (item.id.isBlank()) continue
+            inboxDao.markHandled(
+                notificationId = item.id,
+                handledAt = item.at ?: now,
+                handledReason = item.r ?: "dismissed"
+            )
+            notificationHelper.cancelRelayedNotification(item.id)
+        }
+    }
+
+    /**
+     * Processes an `execute_action` FCM push on the relay device:
+     * decrypts the subscriber's E2E action payload and triggers the cached [Notification.Action].
+     */
+    suspend fun handleIncomingExecuteAction(
+        channelId: String,
+        notificationId: String,
+        actionId: String,
+        iv: String,
+        ciphertext: String
+    ) {
+        val channel = relayChannelDao.getById(channelId) ?: return
+        if (!channel.active || channel.e2eKeyEnc.isBlank()) return
+
+        val e2eKey = runCatching { cryptoManager.unwrapBytes(channel.e2eKeyEnc) }.getOrNull() ?: return
+        val payload = try {
+            runCatching {
+                e2eCryptoEngine.decryptAction(
+                    e2eKey = e2eKey,
+                    channelId = channelId,
+                    notificationId = notificationId,
+                    actionId = actionId,
+                    ivBase64Url = iv,
+                    ciphertextBase64Url = ciphertext
+                )
+            }.onFailure { err ->
+                Log.e(TAG, "Failed to decrypt incoming action $actionId for $notificationId", err)
+            }.getOrNull()
+        } finally {
+            e2eKey.fill(0)
+        } ?: return
+
+        when (val res = relayNotificationRegistry.executeAction(
+            notificationId = payload.notificationId,
+            actionIndex = payload.actionIndex,
+            replyText = payload.replyText
+        )) {
+            is RelayNotificationRegistry.ActionExecutionResult.Executed -> {
+                Log.i(TAG, "Successfully executed remote action ${payload.actionIndex} for $notificationId")
+            }
+            is RelayNotificationRegistry.ActionExecutionResult.Failed -> {
+                Log.w(TAG, "Remote action execution skipped/failed for $notificationId: ${res.reason}")
+            }
+        }
+    }
+
+    /**
+     * Updates a subscriber's locally cached `allowActions` permission when notified via FCM.
+     */
+    suspend fun handleIncomingPermissionsUpdated(
+        channelId: String,
+        targetSubscriberId: String?,
+        allowActions: Boolean
+    ) {
+        val sub = subscriptionDao.getById(channelId) ?: return
+        if (targetSubscriberId != null && sub.subscriberId != targetSubscriberId) return
+        subscriptionDao.updateAllowActions(channelId, allowActions)
+    }
+
+    /**
+     * Encrypts and submits a notification action (or inline quick reply) from a subscriber device
+     * to the server, which atomically locks the notification and dispatches it to the relay phone.
+     */
+    suspend fun executeRemoteAction(
+        channelId: String,
+        notificationId: String,
+        actionIndex: Int,
+        replyText: String? = null
+    ): Result<RemoteActionOutcome> = runCatching {
+        val sub = subscriptionDao.getById(channelId)
+            ?: throw IllegalStateException("Subscription not found")
+        if (sub.status != "active" || sub.apiKeyEnc.isBlank() || sub.e2eKeyEnc.isBlank()) {
+            throw IllegalStateException("Subscription is inactive or revoked")
+        }
+        if (!sub.allowActions) {
+            throw IllegalStateException("Notification actions are disabled for this subscription")
+        }
+        val server = serverDao.getById(sub.serverId)
+            ?: throw IllegalStateException("Server not found")
+
+        val actionId = UUID.randomUUID().toString()
+        val actionPayload = NotificationActionPayload(
+            v = 1,
+            notificationId = notificationId,
+            actionId = actionId,
+            actionIndex = actionIndex,
+            replyText = replyText,
+            ts = System.currentTimeMillis()
+        )
+
+        val e2eKey = cryptoManager.unwrapBytes(sub.e2eKeyEnc)
+        val blob = try {
+            e2eCryptoEngine.encryptAction(
+                e2eKey = e2eKey,
+                channelId = channelId,
+                payload = actionPayload
+            )
+        } finally {
+            e2eKey.fill(0)
+        }
+
+        val subApiKey = cryptoManager.unwrapString(sub.apiKeyEnc)
+        val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
+
+        try {
+            val response = apiClient.unwrapResponse(
+                service.executeNotificationAction(
+                    authHeader = apiClient.bearerHeader(subApiKey),
+                    channelId = channelId,
+                    notificationId = notificationId,
+                    body = ExecuteActionRequest(
+                        actionId = actionId,
+                        iv = blob.iv,
+                        ciphertext = blob.ciphertext
+                    )
+                )
+            )
+            val handledAt = if (response.handledAt > 0L) response.handledAt else System.currentTimeMillis()
+            inboxDao.markHandled(notificationId, handledAt, response.handledReason)
+            inboxDao.markRead(notificationId, handledAt)
+            notificationHelper.cancelRelayedNotification(notificationId)
+            RemoteActionOutcome.Executed(handledAt)
+        } catch (apiErr: CrossNotifyApiException) {
+            when {
+                apiErr.httpCode == 409 && apiErr.errorCode == "already_handled" -> {
+                    val now = System.currentTimeMillis()
+                    inboxDao.markHandled(notificationId, now, "dismissed")
+                    notificationHelper.cancelRelayedNotification(notificationId)
+                    RemoteActionOutcome.AlreadyHandled(now, "dismissed")
+                }
+                apiErr.httpCode == 403 && apiErr.errorCode == "actions_not_allowed" -> {
+                    subscriptionDao.updateAllowActions(channelId, false)
+                    throw IllegalStateException("Notification actions are disabled by the relay device")
+                }
+                apiErr.isRevokedOrUnauthorized -> {
+                    handleSubscriptionRevoked(channelId)
+                    throw apiErr
+                }
+                else -> throw apiErr
+            }
         }
     }
 
@@ -609,6 +889,7 @@ class CrossNotifyRepository @Inject constructor(
             lastReceivedAt = 0L,
             forwardToRelayChannelId = null,
             lastRegisteredFcmToken = fcmToken,
+            allowActions = initResponse.allowActions,
             status = "active"
         )
         subscriptionDao.upsert(subscription)
@@ -943,7 +1224,9 @@ class CrossNotifyRepository @Inject constructor(
         relayTimestamp: Long,
         receivedAt: Long,
         postLocalNotification: Boolean,
-        updateSyncCursor: Boolean = true
+        updateSyncCursor: Boolean = true,
+        handledAt: Long? = null,
+        handledReason: String? = null
     ): NotificationPlaintext? {
         val sub = subscriptionDao.getById(channelId) ?: return null
         if (sub.status != "active" || sub.e2eKeyEnc.isBlank()) return null
@@ -958,7 +1241,12 @@ class CrossNotifyRepository @Inject constructor(
         }
 
         // Skip redundant Keystore unwrap + AES-GCM decryption if already stored locally
-        if (inboxDao.getById(notificationId) != null) {
+        val existingInbox = inboxDao.getById(notificationId)
+        if (existingInbox != null) {
+            if (handledAt != null && existingInbox.handledAt == null) {
+                inboxDao.markHandled(notificationId, handledAt, handledReason)
+                notificationHelper.cancelRelayedNotification(notificationId)
+            }
             if (updateSyncCursor && receivedAt > 0L) {
                 subscriptionDao.updateLastReceivedAt(channelId, receivedAt)
             }
@@ -994,7 +1282,9 @@ class CrossNotifyRepository @Inject constructor(
             appName = appName?.ifBlank { plaintext.app } ?: plaintext.app,
             relayTimestamp = if (relayTimestamp > 0) relayTimestamp else plaintext.postedAt,
             receivedAt = receivedAt,
-            readAt = null
+            readAt = null,
+            handledAt = handledAt,
+            handledReason = handledReason
         )
 
         val insertedRowId = inboxDao.insertIgnore(inboxEntity)
@@ -1005,7 +1295,7 @@ class CrossNotifyRepository @Inject constructor(
 
         val isNewMessage = insertedRowId != -1L && !alreadySeenOrigin
         if (isNewMessage) {
-            if (postLocalNotification) {
+            if (postLocalNotification && handledAt == null) {
                 notificationHelper.postDecryptedNotification(sub, plaintext)
             }
             // Forward to another relay channel if daisy-chaining is configured
@@ -1107,7 +1397,9 @@ class CrossNotifyRepository @Inject constructor(
             relayTimestamp = remoteDto.timestamp ?: remoteDto.receivedAt,
             receivedAt = remoteDto.receivedAt,
             postLocalNotification = postLocalNotification,
-            updateSyncCursor = false
+            updateSyncCursor = false,
+            handledAt = remoteDto.handledAt,
+            handledReason = remoteDto.handledReason
         ) ?: throw IllegalStateException("Failed to decrypt notification payload")
 
         if (markAsRead) {
@@ -1220,7 +1512,9 @@ class CrossNotifyRepository @Inject constructor(
                         appName = item.appName,
                         relayTimestamp = item.timestamp ?: item.receivedAt,
                         receivedAt = item.receivedAt,
-                        postLocalNotification = false
+                        postLocalNotification = false,
+                        handledAt = item.handledAt,
+                        handledReason = item.handledReason
                     )
                     if (item.receivedAt > since) {
                         since = item.receivedAt

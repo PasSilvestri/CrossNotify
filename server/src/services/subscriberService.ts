@@ -15,6 +15,7 @@ export interface SubscriberRow {
   device_name: string | null;
   device_model: string | null;
   delivery_mode: 'battery_saver' | 'immediate_preview';
+  allow_actions: number;
   created_at: number;
   activated_at: number | null;
   revoked_at: number | null;
@@ -31,7 +32,10 @@ export interface SubscriberInitInput {
 export class SubscriberService {
   constructor(private db: Database.Database) {}
 
-  mintSubscriberKey(channelId: string): { subscriberId: string; apiKey: string; expiresAt: number } {
+  mintSubscriberKey(
+    channelId: string,
+    allowActions = true
+  ): { subscriberId: string; apiKey: string; expiresAt: number; allowActions: boolean } {
     const channel = this.db.prepare('SELECT status FROM channels WHERE channel_id = ?').get(channelId) as
       | { status: string }
       | undefined;
@@ -47,18 +51,49 @@ export class SubscriberService {
     const { apiKey, hash, prefix } = generateSubscriberKey();
     const now = Date.now();
     const expiresAt = now + TTLS.PENDING_SUBSCRIBER_MS;
+    const allowActionsInt = allowActions ? 1 : 0;
 
     this.db.prepare(`
       INSERT INTO subscribers (
         channel_id, subscriber_id, api_key_hash, api_key_prefix,
-        status, pending_expires_at, created_at
-      ) VALUES (?, ?, ?, ?, 'pending', ?, ?)
-    `).run(channelId, subscriberId, hash, prefix, expiresAt, now);
+        status, pending_expires_at, allow_actions, created_at
+      ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
+    `).run(channelId, subscriberId, hash, prefix, expiresAt, allowActionsInt, now);
 
     return {
       subscriberId,
       apiKey,
       expiresAt,
+      allowActions,
+    };
+  }
+
+  updateSubscriberPermissions(
+    channelId: string,
+    subscriberId: string,
+    allowActions: boolean
+  ): { subscriberId: string; allowActions: boolean; status: string; fcmToken: string | null } {
+    const sub = this.db.prepare(`
+      SELECT subscriber_id, status, fcm_token FROM subscribers
+      WHERE channel_id = ? AND subscriber_id = ?
+    `).get(channelId, subscriberId) as
+      | { subscriber_id: string; status: string; fcm_token: string | null }
+      | undefined;
+
+    if (!sub || sub.status === 'revoked') {
+      throw { status: 404, code: 'subscriber_not_found', message: 'Subscriber not found or revoked' };
+    }
+
+    this.db.prepare(`
+      UPDATE subscribers SET allow_actions = ?
+      WHERE channel_id = ? AND subscriber_id = ?
+    `).run(allowActions ? 1 : 0, channelId, subscriberId);
+
+    return {
+      subscriberId: sub.subscriber_id,
+      allowActions,
+      status: sub.status,
+      fcmToken: sub.fcm_token,
     };
   }
 
@@ -71,6 +106,7 @@ export class SubscriberService {
     channelId: string;
     channelName: string;
     deliveryMode: 'battery_saver' | 'immediate_preview';
+    allowActions: boolean;
   } {
     const subscriber = this.db.prepare('SELECT * FROM subscribers WHERE api_key_hash = ?').get(apiKeyHash) as
       | SubscriberRow
@@ -154,6 +190,7 @@ export class SubscriberService {
       channelId: subscriber.channel_id,
       channelName: channel.name,
       deliveryMode,
+      allowActions: subscriber.allow_actions !== 0,
     };
   }
 

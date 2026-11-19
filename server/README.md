@@ -7,6 +7,7 @@ The CrossNotify server stores **end-to-end encrypted** notifications from relay 
 - **Web dashboard**: first-run setup wizard, Firebase upload, relay phone provisioning by QR code, channel and subscriber management.
 - **Secure by default**: Argon2id admin password, one-time setup token, Firebase credentials encrypted at rest, one API key per relay channel (stored only as a hash), rate limiting, Helmet security headers.
 - **Battery-friendly delivery**: *battery saver* mode (FCM notification messages, the subscriber app isn't woken) or *immediate preview* mode (FCM data messages, decrypted on arrival).
+- **Server-side subscriber silencing**: Subscribers can temporarily mute FCM pushes for an entire channel or a specific app across both delivery modes while notifications remain stored for catch-up sync.
 - **Automatic retention**: encrypted notifications expire after a configurable time (default 48 h).
 - **Single container**: Node.js + SQLite, with an optional automatic-HTTPS profile using Caddy.
 

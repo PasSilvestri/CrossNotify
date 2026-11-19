@@ -13,7 +13,7 @@ import androidx.room.RoomDatabase
         OutboxEntity::class,
         SeenOriginEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class CrossNotifyDatabase : RoomDatabase() {

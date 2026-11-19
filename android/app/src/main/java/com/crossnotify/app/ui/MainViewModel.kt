@@ -45,10 +45,15 @@ data class PendingQrConfirmation(
 )
 
 data class GeneratedSubscriberQrState(
+    val channelId: String,
     val channelName: String,
+    val subscriberId: String,
+    val qrPayload: CnSubQrPayload,
     val bitmap: Bitmap,
     val payloadJson: String,
     val expiresAtMs: Long,
+    val allowActions: Boolean = true,
+    val isUpdatingPermissions: Boolean = false,
     val createdAtMs: Long = System.currentTimeMillis()
 )
 
@@ -303,14 +308,21 @@ class MainViewModel @Inject constructor(
             _isBusy.value = true
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val (qrPayload, expiresAt) = repository.createSubscriberPairingQrPayload(channel.channelId)
-                    val encoded = QrPayloadParser.encodeSubscriberQr(qrPayload)
+                    val minted = repository.createSubscriberPairingQrPayload(
+                        channelId = channel.channelId,
+                        allowActions = true
+                    )
+                    val encoded = QrPayloadParser.encodeSubscriberQr(minted.qrPayload)
                     val bitmap = QrCodeGenerator.generateBitmap(encoded, 768)
                     GeneratedSubscriberQrState(
+                        channelId = channel.channelId,
                         channelName = channel.name,
+                        subscriberId = minted.subscriberId,
+                        qrPayload = minted.qrPayload,
                         bitmap = bitmap,
                         payloadJson = encoded,
-                        expiresAtMs = expiresAt
+                        expiresAtMs = minted.expiresAt,
+                        allowActions = minted.qrPayload.channel.allowActions
                     )
                 }
             }.onSuccess { state ->
@@ -319,6 +331,95 @@ class MainViewModel @Inject constructor(
                 _statusMessage.value = "Could not mint subscriber key: ${err.message}"
             }
             _isBusy.value = false
+        }
+    }
+
+    fun toggleGeneratedQrAllowActions(allowActions: Boolean) {
+        val current = _generatedSubQr.value ?: return
+        if (current.isUpdatingPermissions || current.allowActions == allowActions) return
+
+        _generatedSubQr.value = current.copy(isUpdatingPermissions = true)
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val confirmed = repository.updateSubscriberPermissions(
+                        channelId = current.channelId,
+                        subscriberId = current.subscriberId,
+                        allowActions = allowActions
+                    )
+                    val updatedPayload = current.qrPayload.copy(
+                        channel = current.qrPayload.channel.copy(allowActions = confirmed)
+                    )
+                    val encoded = QrPayloadParser.encodeSubscriberQr(updatedPayload)
+                    val bitmap = QrCodeGenerator.generateBitmap(encoded, 768)
+                    current.copy(
+                        qrPayload = updatedPayload,
+                        bitmap = bitmap,
+                        payloadJson = encoded,
+                        allowActions = confirmed,
+                        isUpdatingPermissions = false
+                    )
+                }
+            }.onSuccess { updated ->
+                if (_generatedSubQr.value?.subscriberId == updated.subscriberId) {
+                    _generatedSubQr.value = updated
+                }
+            }.onFailure { err ->
+                if (_generatedSubQr.value?.subscriberId == current.subscriberId) {
+                    _generatedSubQr.value = current.copy(isUpdatingPermissions = false)
+                }
+                _statusMessage.value = "Failed to update action permission: ${err.message}"
+            }
+        }
+    }
+
+    fun updateRelaySubscriberAllowActions(
+        channelId: String,
+        subscriberId: String,
+        allowActions: Boolean,
+        onComplete: () -> Unit
+    ) {
+        viewModelScope.launch {
+            runCatching {
+                repository.updateSubscriberPermissions(channelId, subscriberId, allowActions)
+            }.onSuccess { confirmed ->
+                _statusMessage.value = if (confirmed) {
+                    "Notification actions enabled for subscriber."
+                } else {
+                    "Notification actions disabled for subscriber."
+                }
+                onComplete()
+            }.onFailure { err ->
+                _statusMessage.value = "Failed to update subscriber permissions: ${err.message}"
+            }
+        }
+    }
+
+    fun executeRemoteAction(
+        channelId: String,
+        notificationId: String,
+        actionIndex: Int,
+        replyText: String? = null,
+        onResult: (Result<CrossNotifyRepository.RemoteActionOutcome>) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val result = repository.executeRemoteAction(
+                channelId = channelId,
+                notificationId = notificationId,
+                actionIndex = actionIndex,
+                replyText = replyText
+            )
+            result.onSuccess { outcome ->
+                _statusMessage.value = when (outcome) {
+                    is CrossNotifyRepository.RemoteActionOutcome.Executed ->
+                        if (replyText != null) "Reply sent to relay device." else "Action sent to relay device."
+                    is CrossNotifyRepository.RemoteActionOutcome.AlreadyHandled ->
+                        "Notification was already handled."
+                }
+            }.onFailure { err ->
+                _statusMessage.value = err.message ?: "Failed to execute action."
+            }
+            onResult(result)
         }
     }
 

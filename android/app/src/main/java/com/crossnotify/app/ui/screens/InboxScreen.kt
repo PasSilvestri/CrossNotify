@@ -19,9 +19,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Lock
@@ -51,13 +54,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.crossnotify.app.data.repository.CrossNotifyRepository
 import com.crossnotify.app.data.repository.DecryptedInboxItem
 import com.crossnotify.app.ui.MainViewModel
+import com.crossnotify.app.ui.components.NotificationActionsPanel
+import com.crossnotify.app.ui.components.NotificationMediaImage
 import com.crossnotify.app.ui.theme.parseHexColor
 import com.crossnotify.app.util.AppIconHelper
+import com.crossnotify.app.util.NotificationMediaHelper
 import java.text.DateFormat
 import java.util.Date
 
@@ -69,7 +77,10 @@ fun InboxScreen(viewModel: MainViewModel) {
     val isSyncing by viewModel.isSyncingInbox.collectAsState()
 
     var selectedChannelFilter by remember { mutableStateOf<String?>(null) }
-    var selectedItem by remember { mutableStateOf<DecryptedInboxItem?>(null) }
+    var selectedNotificationId by remember { mutableStateOf<String?>(null) }
+    val selectedItem = remember(inboxItems, selectedNotificationId) {
+        selectedNotificationId?.let { id -> inboxItems.firstOrNull { it.entity.notificationId == id } }
+    }
 
     // Download and decrypt all notifications when entering the history page or switching channel filter
     LaunchedEffect(selectedChannelFilter) {
@@ -234,20 +245,21 @@ fun InboxScreen(viewModel: MainViewModel) {
 
                         items(itemsForChannel, key = { it.entity.notificationId }) { item ->
                             val pt = item.plaintext
-                            val isUnread = item.entity.readAt == null
+                            val isHandled = item.entity.handledAt != null
+                            val isUnread = item.entity.readAt == null && !isHandled
 
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
                                         viewModel.markInboxItemRead(item.entity.notificationId)
-                                        selectedItem = item
+                                        selectedNotificationId = item.entity.notificationId
                                     },
                                 colors = CardDefaults.cardColors(
-                                    containerColor = if (isUnread) {
-                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                    containerColor = when {
+                                        isHandled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+                                        isUnread -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                                        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                                     }
                                 )
                             ) {
@@ -292,20 +304,41 @@ fun InboxScreen(viewModel: MainViewModel) {
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                     if (pt != null) {
-                                        Text(
-                                            text = pt.title.ifBlank { "(No title)" },
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                        val bodyPreview = pt.text.ifBlank { pt.bigText }
-                                        if (bodyPreview.isNotBlank()) {
-                                            Text(
-                                                text = bodyPreview,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = pt.title.ifBlank { "(No title)" },
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Medium
+                                                )
+                                                val bodyPreview = pt.text.ifBlank { pt.bigText }
+                                                if (bodyPreview.isNotBlank()) {
+                                                    Text(
+                                                        text = bodyPreview,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                            val thumbBitmap = remember(pt.image) {
+                                                NotificationMediaHelper.decodeBase64ToBitmap(pt.image)
+                                            }
+                                            if (thumbBitmap != null) {
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Image(
+                                                    bitmap = thumbBitmap.asImageBitmap(),
+                                                    contentDescription = "Notification preview image",
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier
+                                                        .size(48.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                )
+                                            }
                                         }
                                     } else {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -323,6 +356,31 @@ fun InboxScreen(viewModel: MainViewModel) {
                                             )
                                         }
                                     }
+                                    if (isHandled) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CheckCircleOutline,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = NotificationMediaHelper.formatHandledStatus(item.entity.handledReason),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -334,8 +392,11 @@ fun InboxScreen(viewModel: MainViewModel) {
 
     selectedItem?.let { item ->
         val pt = item.plaintext
+        var isExecutingAction by remember(item.entity.notificationId) { mutableStateOf(false) }
+        var actionFeedback by remember(item.entity.notificationId) { mutableStateOf<String?>(null) }
+
         AlertDialog(
-            onDismissRequest = { selectedItem = null },
+            onDismissRequest = { selectedNotificationId = null },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val iconBitmap = remember(pt?.icon) {
@@ -358,7 +419,10 @@ fun InboxScreen(viewModel: MainViewModel) {
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     if (pt != null) {
                         Surface(
                             color = MaterialTheme.colorScheme.secondaryContainer,
@@ -378,11 +442,44 @@ fun InboxScreen(viewModel: MainViewModel) {
                             )
                         }
                         val fullBody = pt.bigText.ifBlank { pt.text }
-                        Text(
-                            text = fullBody,
-                            style = MaterialTheme.typography.bodyMedium
+                        if (fullBody.isNotBlank()) {
+                            Text(
+                                text = fullBody,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        NotificationMediaImage(imageBase64 = pt.image)
+                        NotificationActionsPanel(
+                            actions = pt.actions,
+                            allowActions = item.subscription?.allowActions ?: false,
+                            handledAt = item.entity.handledAt,
+                            handledReason = item.entity.handledReason,
+                            isExecuting = isExecutingAction,
+                            feedbackMessage = actionFeedback,
+                            onExecuteAction = { actionIndex, replyText ->
+                                isExecutingAction = true
+                                actionFeedback = null
+                                viewModel.executeRemoteAction(
+                                    channelId = item.entity.channelId,
+                                    notificationId = item.entity.notificationId,
+                                    actionIndex = actionIndex,
+                                    replyText = replyText
+                                ) { res ->
+                                    res.onSuccess { outcome ->
+                                        actionFeedback = when (outcome) {
+                                            is CrossNotifyRepository.RemoteActionOutcome.Executed ->
+                                                if (replyText != null) "Reply sent." else "Action executed."
+                                            is CrossNotifyRepository.RemoteActionOutcome.AlreadyHandled ->
+                                                "Notification was already handled."
+                                        }
+                                    }.onFailure { err ->
+                                        actionFeedback = err.message ?: "Failed to execute action."
+                                    }
+                                    isExecutingAction = false
+                                }
+                            }
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Posted: ${formatTimestamp(pt.postedAt)}\n" +
                                 "Received: ${formatTimestamp(item.entity.receivedAt)}\n" +
@@ -397,7 +494,7 @@ fun InboxScreen(viewModel: MainViewModel) {
                 }
             },
             confirmButton = {
-                Button(onClick = { selectedItem = null }) {
+                Button(onClick = { selectedNotificationId = null }) {
                     Text("Close")
                 }
             }

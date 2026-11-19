@@ -34,9 +34,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,9 +49,13 @@ import androidx.compose.ui.unit.dp
 import com.crossnotify.app.crypto.NotificationPlaintext
 import com.crossnotify.app.data.db.SubscriptionEntity
 import com.crossnotify.app.data.repository.CrossNotifyRepository
+import com.crossnotify.app.ui.components.NotificationActionsPanel
+import com.crossnotify.app.ui.components.NotificationMediaImage
 import com.crossnotify.app.ui.theme.CrossNotifyTheme
 import com.crossnotify.app.util.AppIconHelper
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 import javax.inject.Inject
@@ -83,6 +89,17 @@ class DecryptActivity : AppCompatActivity() {
                 var decryptedResult by remember(channelId, notificationId) {
                     mutableStateOf<Pair<SubscriptionEntity, NotificationPlaintext>?>(null)
                 }
+                var isExecutingAction by remember(channelId, notificationId) { mutableStateOf(false) }
+                var actionFeedback by remember(channelId, notificationId) { mutableStateOf<String?>(null) }
+                val coroutineScope = rememberCoroutineScope()
+
+                val inboxEntity by remember(notificationId) {
+                    if (!notificationId.isNullOrBlank()) {
+                        repository.observeInboxItem(notificationId)
+                    } else {
+                        flowOf(null)
+                    }
+                }.collectAsState(initial = null)
 
                 LaunchedEffect(channelId, notificationId) {
                     if (channelId.isNullOrBlank() || notificationId.isNullOrBlank()) {
@@ -218,9 +235,45 @@ class DecryptActivity : AppCompatActivity() {
                                         }
 
                                         val body = pt.bigText.ifBlank { pt.text }
-                                        Text(
-                                            text = body,
-                                            style = MaterialTheme.typography.bodyLarge
+                                        if (body.isNotBlank()) {
+                                            Text(
+                                                text = body,
+                                                style = MaterialTheme.typography.bodyLarge
+                                            )
+                                        }
+
+                                        NotificationMediaImage(imageBase64 = pt.image)
+
+                                        NotificationActionsPanel(
+                                            actions = pt.actions,
+                                            allowActions = sub.allowActions,
+                                            handledAt = inboxEntity?.handledAt,
+                                            handledReason = inboxEntity?.handledReason,
+                                            isExecuting = isExecutingAction,
+                                            feedbackMessage = actionFeedback,
+                                            onExecuteAction = { actionIndex, replyText ->
+                                                isExecutingAction = true
+                                                actionFeedback = null
+                                                coroutineScope.launch {
+                                                    val res = repository.executeRemoteAction(
+                                                        channelId = sub.channelId,
+                                                        notificationId = pt.id,
+                                                        actionIndex = actionIndex,
+                                                        replyText = replyText
+                                                    )
+                                                    res.onSuccess { outcome ->
+                                                        actionFeedback = when (outcome) {
+                                                            is CrossNotifyRepository.RemoteActionOutcome.Executed ->
+                                                                if (replyText != null) "Reply sent to relay device." else "Action sent to relay device."
+                                                            is CrossNotifyRepository.RemoteActionOutcome.AlreadyHandled ->
+                                                                "This notification was already handled."
+                                                        }
+                                                    }.onFailure { err ->
+                                                        actionFeedback = err.message ?: "Could not execute action."
+                                                    }
+                                                    isExecutingAction = false
+                                                }
+                                            }
                                         )
 
                                         val formattedTime = DateFormat.getDateTimeInstance(
