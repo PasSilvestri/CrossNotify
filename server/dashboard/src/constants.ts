@@ -1,4 +1,6 @@
-export const DASHBOARD_VERSION = '1.0.1';
+import { version } from '../package.json';
+
+export const DASHBOARD_VERSION = version;
 
 export const LIMITS = {
   CHANNEL_NAME_MIN: 1,
