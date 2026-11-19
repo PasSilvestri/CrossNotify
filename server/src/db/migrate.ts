@@ -155,4 +155,35 @@ export function runMigrations(db: Database.Database): void {
     applyMigration4();
     console.log('[db] Applied migration 004_actions_and_handled.sql');
   }
+
+  // Migration 5
+  if (!appliedSet.has(5)) {
+    let sql: string | null = null;
+    const candidatePaths = [
+      path.join(__dirname, 'migrations', '005_subscriber_app_version.sql'),
+      path.join(process.cwd(), 'src', 'db', 'migrations', '005_subscriber_app_version.sql'),
+      path.join(process.cwd(), 'migrations', '005_subscriber_app_version.sql'),
+    ];
+
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        sql = fs.readFileSync(p, 'utf8');
+        break;
+      }
+    }
+
+    if (!sql) {
+      sql = `
+        ALTER TABLE subscribers ADD COLUMN app_version TEXT;
+      `;
+    }
+
+    const applyMigration5 = db.transaction(() => {
+      db.exec(sql!);
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(5, Date.now());
+    });
+
+    applyMigration5();
+    console.log('[db] Applied migration 005_subscriber_app_version.sql');
+  }
 }

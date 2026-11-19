@@ -26,6 +26,7 @@ const SubscriberInitSchema = z.object({
   fcmToken: z.string().min(1),
   deviceName: z.string().optional(),
   deviceModel: z.string().optional(),
+  appVersion: z.string().trim().max(50).optional(),
   deliveryMode: z.enum(['battery_saver', 'immediate_preview']).optional(),
 });
 
@@ -33,6 +34,7 @@ const SubscriberUpdateSelfSchema = z.object({
   fcmToken: z.string().nullable().optional(),
   deviceName: z.string().trim().min(1).max(100).nullable().optional(),
   deviceModel: z.string().trim().nullable().optional(),
+  appVersion: z.string().trim().max(50).nullable().optional(),
   deliveryMode: z.enum(['battery_saver', 'immediate_preview']).nullable().optional(),
 });
 

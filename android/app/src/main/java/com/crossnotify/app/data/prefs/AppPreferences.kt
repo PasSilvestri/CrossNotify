@@ -107,6 +107,22 @@ class AppPreferences @Inject constructor(
         prefs.edit().putString("relay_fcm_token_$channelId", token).apply()
     }
 
+    fun getRelayLastSyncedAppVersion(channelId: String): String? {
+        return prefs.getString("relay_app_version_$channelId", null)
+    }
+
+    fun setRelayLastSyncedAppVersion(channelId: String, version: String) {
+        prefs.edit().putString("relay_app_version_$channelId", version).apply()
+    }
+
+    fun getSubscriberLastSyncedAppVersion(channelId: String): String? {
+        return prefs.getString("sub_app_version_$channelId", null)
+    }
+
+    fun setSubscriberLastSyncedAppVersion(channelId: String, version: String) {
+        prefs.edit().putString("sub_app_version_$channelId", version).apply()
+    }
+
     @Synchronized
     fun setChannelSilence(channelId: String, durationMs: Long) {
         if (durationMs <= 0L) {

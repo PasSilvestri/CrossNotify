@@ -41,6 +41,7 @@ data class SubscriberDeviceDto(
     val subscriberId: String,
     val deviceName: String? = null,
     val deviceModel: String? = null,
+    val appVersion: String? = null,
     val deliveryMode: String = "battery_saver",
     val allowActions: Boolean = true,
     val status: String = "active",
@@ -119,6 +120,7 @@ data class SubscriberInitRequest(
     val fcmToken: String,
     val deviceName: String,
     val deviceModel: String,
+    val appVersion: String? = null,
     val deliveryMode: String = "battery_saver"
 )
 
@@ -136,6 +138,7 @@ data class SubscriberUpdateSelfRequest(
     val fcmToken: String? = null,
     val deviceName: String? = null,
     val deviceModel: String? = null,
+    val appVersion: String? = null,
     val deliveryMode: String? = null
 )
 

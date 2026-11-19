@@ -357,6 +357,7 @@ export class ChannelService {
         subscriber_id as subscriberId,
         device_name as deviceName,
         device_model as deviceModel,
+        app_version as appVersion,
         delivery_mode as deliveryMode,
         allow_actions as allowActions,
         status,

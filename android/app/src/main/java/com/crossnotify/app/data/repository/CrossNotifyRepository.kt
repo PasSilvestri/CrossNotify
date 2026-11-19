@@ -855,6 +855,7 @@ class CrossNotifyRepository @Inject constructor(
                     fcmToken = fcmToken,
                     deviceName = appPreferences.deviceName.value,
                     deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                    appVersion = BuildConfig.VERSION_NAME,
                     deliveryMode = deliveryMode
                 )
             )
@@ -893,6 +894,7 @@ class CrossNotifyRepository @Inject constructor(
             status = "active"
         )
         subscriptionDao.upsert(subscription)
+        appPreferences.setSubscriberLastSyncedAppVersion(subscription.channelId, BuildConfig.VERSION_NAME)
         notificationHelper.ensureSubscriptionChannel(subscription)
 
         // Trigger initial catch-up sync
@@ -920,6 +922,8 @@ class CrossNotifyRepository @Inject constructor(
                 channelId = channelId,
                 body = SubscriberUpdateSelfRequest(
                     deviceName = appPreferences.deviceName.value,
+                    deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                    appVersion = BuildConfig.VERSION_NAME,
                     deliveryMode = deliveryMode
                 )
             )
@@ -1154,6 +1158,24 @@ class CrossNotifyRepository @Inject constructor(
                     tag = "revoked_relay_${channel.channelId}"
                 )
                 revoked.add(channel.channelId)
+            } else if (appPreferences.getRelayLastSyncedAppVersion(channel.channelId) != BuildConfig.VERSION_NAME) {
+                runCatching {
+                    apiClient.unwrapResponse(
+                        service.updateRelay(
+                            authHeader = apiClient.bearerHeader(relayApiKey),
+                            channelId = channel.channelId,
+                            body = RelayUpdateRequest(
+                                deviceName = appPreferences.deviceName.value,
+                                deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                                osVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                                appVersion = BuildConfig.VERSION_NAME
+                            )
+                        )
+                    )
+                    appPreferences.setRelayLastSyncedAppVersion(channel.channelId, BuildConfig.VERSION_NAME)
+                }.onFailure { err ->
+                    Log.w(TAG, "Failed to sync relay appVersion for ${channel.channelId}: ${err.message}")
+                }
             }
         }
         return revoked
@@ -1489,6 +1511,25 @@ class CrossNotifyRepository @Inject constructor(
         val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
         val authHeader = apiClient.bearerHeader(subApiKey)
 
+        if (appPreferences.getSubscriberLastSyncedAppVersion(channelId) != BuildConfig.VERSION_NAME) {
+            runCatching {
+                apiClient.unwrapResponse(
+                    service.updateSubscriberSelf(
+                        authHeader = authHeader,
+                        channelId = channelId,
+                        body = SubscriberUpdateSelfRequest(
+                            deviceName = appPreferences.deviceName.value,
+                            deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                            appVersion = BuildConfig.VERSION_NAME
+                        )
+                    )
+                )
+                appPreferences.setSubscriberLastSyncedAppVersion(channelId, BuildConfig.VERSION_NAME)
+            }.onFailure { err ->
+                Log.w(TAG, "Failed to sync subscriber appVersion for $channelId: ${err.message}")
+            }
+        }
+
         var since = if (fromBeginning) 0L else sub.lastReceivedAt
         var safetyPages = 0
 
@@ -1545,11 +1586,14 @@ class CrossNotifyRepository @Inject constructor(
      */
     suspend fun refreshFcmTokensForAllSubscriptions() {
         val activeSubs = subscriptionDao.getActive()
+        val currentAppVersion = BuildConfig.VERSION_NAME
         for (sub in activeSubs) {
             val server = serverDao.getById(sub.serverId) ?: continue
             runCatching {
                 val currentToken = firebaseProjectManager.getFcmToken(server)
-                if (currentToken.isNotBlank() && currentToken != sub.lastRegisteredFcmToken) {
+                val tokenChanged = currentToken.isNotBlank() && currentToken != sub.lastRegisteredFcmToken
+                val versionChanged = appPreferences.getSubscriberLastSyncedAppVersion(sub.channelId) != currentAppVersion
+                if (tokenChanged || versionChanged) {
                     val subApiKey = cryptoManager.unwrapString(sub.apiKeyEnc)
                     val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
                     apiClient.unwrapResponse(
@@ -1557,19 +1601,23 @@ class CrossNotifyRepository @Inject constructor(
                             authHeader = apiClient.bearerHeader(subApiKey),
                             channelId = sub.channelId,
                             body = SubscriberUpdateSelfRequest(
-                                fcmToken = currentToken,
+                                fcmToken = currentToken.takeIf { it.isNotBlank() },
                                 deviceName = appPreferences.deviceName.value,
-                                deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+                                deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                                appVersion = currentAppVersion
                             )
                         )
                     )
-                    subscriptionDao.updateLastRegisteredFcmToken(sub.channelId, currentToken)
+                    if (currentToken.isNotBlank()) {
+                        subscriptionDao.updateLastRegisteredFcmToken(sub.channelId, currentToken)
+                    }
+                    appPreferences.setSubscriberLastSyncedAppVersion(sub.channelId, currentAppVersion)
                 }
             }.onFailure { err ->
                 if (err is CrossNotifyApiException && err.isRevokedOrUnauthorized) {
                     handleSubscriptionRevoked(sub.channelId)
                 } else {
-                    Log.w(TAG, "Token refresh check failed for ${sub.channelId}: ${err.message}")
+                    Log.w(TAG, "Token/version sync check failed for ${sub.channelId}: ${err.message}")
                 }
             }
         }
@@ -1577,17 +1625,20 @@ class CrossNotifyRepository @Inject constructor(
     }
 
     /**
-     * Verifies FCM registration tokens across all active relay channels and notifies the
-     * respective servers whenever a token has been rotated.
+     * Verifies FCM registration tokens and app versions across all active relay channels
+     * and notifies the respective servers whenever either has changed.
      */
     suspend fun refreshFcmTokensForAllRelayChannels() {
         val activeChannels = relayChannelDao.getActive()
+        val currentAppVersion = BuildConfig.VERSION_NAME
         for (channel in activeChannels) {
             val server = serverDao.getById(channel.serverId) ?: continue
             runCatching {
                 val currentToken = firebaseProjectManager.getFcmToken(server)
                 val lastToken = appPreferences.getRelayLastFcmToken(channel.channelId)
-                if (currentToken.isNotBlank() && currentToken != lastToken) {
+                val tokenChanged = currentToken.isNotBlank() && currentToken != lastToken
+                val versionChanged = appPreferences.getRelayLastSyncedAppVersion(channel.channelId) != currentAppVersion
+                if (tokenChanged || versionChanged) {
                     val relayApiKey = cryptoManager.unwrapString(channel.apiKeyEnc)
                     val service = apiClient.serviceFor(server.url, server.insecureHttpAccepted)
                     apiClient.unwrapResponse(
@@ -1595,18 +1646,25 @@ class CrossNotifyRepository @Inject constructor(
                             authHeader = apiClient.bearerHeader(relayApiKey),
                             channelId = channel.channelId,
                             body = RelayUpdateRequest(
-                                fcmToken = currentToken
+                                deviceName = appPreferences.deviceName.value,
+                                deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                                osVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                                appVersion = currentAppVersion,
+                                fcmToken = currentToken.takeIf { it.isNotBlank() }
                             )
                         )
                     )
-                    appPreferences.setRelayLastFcmToken(channel.channelId, currentToken)
+                    if (currentToken.isNotBlank()) {
+                        appPreferences.setRelayLastFcmToken(channel.channelId, currentToken)
+                    }
+                    appPreferences.setRelayLastSyncedAppVersion(channel.channelId, currentAppVersion)
                 }
             }.onFailure { err ->
                 if (err is CrossNotifyApiException && err.isRevokedOrUnauthorized) {
                     relayChannelDao.setActive(channel.channelId, false)
                     outboxDao.deleteByChannel(channel.channelId)
                 } else {
-                    Log.w(TAG, "Token refresh check failed for relay channel ${channel.channelId}: ${err.message}")
+                    Log.w(TAG, "Token/version sync check failed for relay channel ${channel.channelId}: ${err.message}")
                 }
             }
         }
@@ -1691,7 +1749,8 @@ class CrossNotifyRepository @Inject constructor(
                         channelId = sub.channelId,
                         body = SubscriberUpdateSelfRequest(
                             deviceName = newName,
-                            deviceModel = deviceModel
+                            deviceModel = deviceModel,
+                            appVersion = appVersion
                         )
                     )
                 )

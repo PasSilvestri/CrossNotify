@@ -195,6 +195,7 @@ onMounted(loadChannel);
           <thead>
             <tr>
               <th>Subscriber Device</th>
+              <th>App Version</th>
               <th>Delivery Mode</th>
               <th>Subscribed At</th>
               <th>Last Seen</th>
@@ -209,6 +210,7 @@ onMounted(loadChannel);
                   <span v-if="sub.deviceModel" class="device-model">{{ sub.deviceModel }}</span>
                 </div>
               </td>
+              <td>{{ sub.appVersion || '—' }}</td>
               <td>
                 <span class="delivery-badge" :class="sub.deliveryMode">
                   {{ sub.deliveryMode === 'battery_saver' ? 'Battery Saver' : 'Immediate Preview' }}

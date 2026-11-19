@@ -14,6 +14,7 @@ export interface SubscriberRow {
   fcm_token: string | null;
   device_name: string | null;
   device_model: string | null;
+  app_version: string | null;
   delivery_mode: 'battery_saver' | 'immediate_preview';
   allow_actions: number;
   created_at: number;
@@ -26,6 +27,7 @@ export interface SubscriberInitInput {
   fcmToken: string;
   deviceName?: string;
   deviceModel?: string;
+  appVersion?: string;
   deliveryMode?: 'battery_saver' | 'immediate_preview';
 }
 
@@ -151,6 +153,7 @@ export class SubscriberService {
           fcm_token = ?,
           device_name = ?,
           device_model = ?,
+          app_version = ?,
           delivery_mode = ?,
           activated_at = ?,
           pending_expires_at = NULL,
@@ -160,6 +163,7 @@ export class SubscriberService {
         body.fcmToken,
         body.deviceName || null,
         body.deviceModel || null,
+        body.appVersion || null,
         deliveryMode,
         now,
         now,
@@ -172,6 +176,7 @@ export class SubscriberService {
           fcm_token = COALESCE(?, fcm_token),
           device_name = COALESCE(?, device_name),
           device_model = COALESCE(?, device_model),
+          app_version = COALESCE(?, app_version),
           delivery_mode = COALESCE(?, delivery_mode),
           last_seen_at = ?
         WHERE id = ?
@@ -179,6 +184,7 @@ export class SubscriberService {
         body.fcmToken,
         body.deviceName || null,
         body.deviceModel || null,
+        body.appVersion || null,
         body.deliveryMode || null,
         now,
         subscriber.id
@@ -210,6 +216,7 @@ export class SubscriberService {
       fcmToken?: string | null;
       deviceName?: string | null;
       deviceModel?: string | null;
+      appVersion?: string | null;
       deliveryMode?: 'battery_saver' | 'immediate_preview' | null;
     }
   ): { subscriberId: string; deliveryMode: string } {
@@ -224,6 +231,7 @@ export class SubscriberService {
         fcm_token = COALESCE(?, fcm_token),
         device_name = COALESCE(?, device_name),
         device_model = COALESCE(?, device_model),
+        app_version = COALESCE(?, app_version),
         delivery_mode = COALESCE(?, delivery_mode),
         last_seen_at = ?
       WHERE subscriber_id = ?
@@ -231,6 +239,7 @@ export class SubscriberService {
       updates.fcmToken || null,
       updates.deviceName || null,
       updates.deviceModel || null,
+      updates.appVersion || null,
       updates.deliveryMode || null,
       now,
       subscriberId

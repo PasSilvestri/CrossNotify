@@ -523,7 +523,7 @@ private fun RelayChannelDetailContent(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         val activeSubscribers = remember(subscribers) {
-                            subscribers.filter { it.status != "revoked" }
+                            subscribers.filter { it.status == "active" }
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -581,9 +581,13 @@ private fun RelayChannelDetailContent(
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     fontWeight = FontWeight.SemiBold
                                                 )
-                                                if (!sub.deviceModel.isNullOrBlank()) {
+                                                if (!sub.deviceModel.isNullOrBlank() || !sub.appVersion.isNullOrBlank()) {
+                                                    val metaParts = listOfNotNull(
+                                                        sub.deviceModel?.takeIf { it.isNotBlank() },
+                                                        sub.appVersion?.takeIf { it.isNotBlank() }?.let { "v$it" }
+                                                    )
                                                     Text(
-                                                        text = sub.deviceModel,
+                                                        text = metaParts.joinToString(" • "),
                                                         style = MaterialTheme.typography.bodySmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )

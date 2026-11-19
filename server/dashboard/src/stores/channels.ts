@@ -21,7 +21,9 @@ export interface Subscriber {
   subscriberId: string;
   deviceName: string | null;
   deviceModel: string | null;
+  appVersion: string | null;
   deliveryMode: 'battery_saver' | 'immediate_preview';
+  allowActions?: boolean;
   status: 'pending' | 'active' | 'revoked';
   createdAt: number;
   activatedAt: number | null;
